@@ -1,0 +1,14 @@
+# One per failed readiness probe, from the WARNING line "readiness check
+# failed" (server/app/app.go, readyHandler). The body of /readyz says
+# nothing on purpose; this line is where the driver's error text goes.
+name: loop_sessions/readyz_failed
+description: Failed /readyz checks (server line "readiness check failed"); the database is unreachable from an instance
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="readiness check failed"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"

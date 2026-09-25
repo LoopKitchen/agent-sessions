@@ -1,0 +1,15 @@
+# One per failed live pass of the Slack mirror, from the ERROR line "slack
+# live pass failed" (server/slack/slack.go). The runbook in
+# examples/deploy-gcp/README.md has referred to this metric since the mirror
+# shipped; this file is what makes that sentence true.
+name: loop_sessions/slack_live_pass_failed
+description: Failed Slack mirror live passes (server line "slack live pass failed")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="slack live pass failed"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"

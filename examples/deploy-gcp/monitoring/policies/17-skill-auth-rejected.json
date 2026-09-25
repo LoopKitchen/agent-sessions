@@ -1,0 +1,106 @@
+{
+  "displayName": "loop-sessions: skill posts refused for their credential",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "infra",
+    "asset": "17-skill-auth-rejected"
+  },
+  "conditions": [
+    {
+      "displayName": "unauthenticated skill posts at or above 20 in 15 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_rejected\" AND resource.type=\"cloud_run_revision\" AND metric.labels.reason=\"unauthenticated\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "900s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 19,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "a revoked or expired token used at or above 1 in 1 h",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_rejected\" AND resource.type=\"cloud_run_revision\" AND metric.labels.token_state=monitoring.regex.full_match(\"revoked|expired\")",
+        "aggregations": [
+          {
+            "alignmentPeriod": "3600s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "derived rows displacing API rows above 5 in 1 h",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_preempted\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "3600s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 5,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "a reconciler run whose row count the server did not see, at or above 1 in 24 h",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_reconciler_mismatch\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "86400s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "3600s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The skill route refused posts for their credential. Every emitter swallows a 401, so this is the only place a token gone bad is seen. `token_state` on the rejected line says which: `revoked` or `expired` is a platform still on a token an operator retired, or a leaked copy in use after the revoke; `none` at volume is a prober guessing bearers unless 5xx correlates; `wrong_scope` is a catalog publisher's token pointed at the invocation route. The third condition is different in kind: `skill invocation preempted` lines are derived rows displacing API rows on their key, and more than a handful in an hour is a token or device pre-inserting rows the laptop's own events then overwrite. The fourth is a `skill reconciler run` line with `mismatch=true`: the run's `rows_posted` differs from the reconciler rows the server holds for the run's platform inside the run's own window, counted by `occurred_at` and whatever token posted them, so either the reconciler lost posts to 4xx it swallowed or someone else is posting reconciler rows for the platform; `rows_seen` against `rows_posted` on the line says which way. A retried run is a `duplicate`, stores nothing and never mismatches, so a token rotation does not fire this condition: if the line's `source_token_id` is a token just rotated, read the platform's rows, not the token's.\n\ngcloud logging read 'resource.labels.service_name=\\\"loop-sessions\\\" AND jsonPayload.message=\\\"skill invocation rejected\\\"' --freshness=30m --format='value(timestamp,jsonPayload.reason,jsonPayload.token_state,jsonPayload.source_token_id,jsonPayload.platform,jsonPayload.field)'. Group by `reason`, `token_state`, `source_token_id`. A `revoked` or `expired` state names the token id: finish the rotation on that platform (mint, push to the vendor, wait for `last_used_at` to stop or 24 h, limit 0 for a day, revoke) or, if the token was retired on purpose, rotate the platform now since someone still holds a copy. `preempted`: read the `skill invocation preempted` lines for `preempted_by` or `preempted_device` and revoke it.\n\nRunbook: examples/deploy-gcp/README.md#runbook-source-tokens",
+    "links": [
+      {
+        "displayName": "Runbook: source tokens",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-source-tokens"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

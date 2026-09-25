@@ -1,0 +1,53 @@
+{
+  "displayName": "loop-sessions: a machine is dropping events (capture_blocked)",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "CRITICAL",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "fleet",
+    "asset": "04-fleet-capture-blocked"
+  },
+  "conditions": [
+    {
+      "displayName": "machines with capture_blocked at or above 1 for 15 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/fleet_capture_blocked\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "900s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "At least one laptop's spool is refusing writes: the disk is below the client's floor, and every hook that fires on that machine is dropping its event right now. This is the one fleet condition where the loss is happening as you read this.\n\nWho: `gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"fleet condition\" AND jsonPayload.kind=\"capture_blocked\"' --freshness=15m --format='value(jsonPayload.email,jsonPayload.device_id,jsonPayload.detail,jsonPayload.agent_version)'`, or the top of /admin/fleet, which lists the same row with the person's name. Ask them to free disk (the client's `loop-sessions status` says how far below the floor it is); a client older than 788dcb3 refuses below 5% of the disk and needs the upgrade, not a bigger disk.\n\nRunbook: examples/deploy-gcp/README.md#runbook-capture-blocked",
+    "links": [
+      {
+        "displayName": "Runbook: capture blocked",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-capture-blocked"
+      },
+      {
+        "displayName": "/admin/fleet",
+        "url": "__PUBLIC_URL__/admin/fleet"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_FLEET__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

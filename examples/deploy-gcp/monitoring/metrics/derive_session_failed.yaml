@@ -1,0 +1,15 @@
+# One per "derive session failed" line: the dirty pass could not fold one
+# session and parked it so the rest of the pass could finish. The session id
+# is in the line, not a label (ids are unbounded); the count is what alerts,
+# the line is where to look.
+name: loop_sessions/derive_session_failed
+description: Sessions the derive dirty pass failed to fold and parked (server line "derive session failed")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="derive session failed"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"

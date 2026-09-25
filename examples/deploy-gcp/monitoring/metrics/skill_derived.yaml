@@ -1,0 +1,23 @@
+# One per "skill invocations derived" line: an ingest batch that held a
+# Skill call, its result or a slash prompt. touched says whether a row was
+# written or deduplicated; a run of touched=false batches is a derivation
+# that sees candidates and stores none, which the line's counters explain.
+name: loop_sessions/skill_derived
+description: Ingest batches that derived skill invocations (server line "skill invocations derived")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="skill invocations derived"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: agent_platform
+      valueType: STRING
+    - key: touched
+      valueType: STRING
+labelExtractors:
+  agent_platform: EXTRACT(jsonPayload.agent_platform)
+  touched: EXTRACT(jsonPayload.touched)

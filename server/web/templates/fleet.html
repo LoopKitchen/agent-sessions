@@ -1,0 +1,213 @@
+{{define "content"}}
+<div class="pagehead">
+  <h1>Fleet</h1>
+  <p class="sub">Laptops have no cloud credentials, so everything here arrived inside a health report the client sent. A machine that stops reporting is the failure this page exists to catch; the list at the top is what to do about the rest, worst first.</p>
+</div>
+
+{{if .Notice}}<p class="flash flash-ok">{{.Notice}}</p>{{end}}
+{{if .Problem}}<p class="flash flash-bad">{{.Problem}}</p>{{end}}
+
+<div class="cards">
+  <div class="card"><span class="card-n">{{num .Fleet.Enrolled}}</span><span class="card-l">enrolled</span></div>
+  <div class="card"><span class="card-n">{{num .Fleet.Reporting}}</span><span class="card-l">reporting</span></div>
+  <div class="card {{if .Fleet.Degraded}}warn{{end}}"><span class="card-n">{{num .Fleet.Degraded}}</span><span class="card-l">degraded</span></div>
+  <div class="card {{if .Fleet.Critical}}bad{{end}}"><span class="card-n">{{num .Fleet.Critical}}</span><span class="card-l">critical</span></div>
+  <div class="card {{if .Fleet.Silent}}bad{{end}}"><span class="card-n">{{num .Fleet.Silent}}</span><span class="card-l">gone quiet</span></div>
+  {{if .Eval}}
+  <div class="card {{if .Eval.Summary.Behind}}warn{{end}}"><span class="card-n">{{num .Eval.Summary.Behind}}</span><span class="card-l">behind a day</span></div>
+  <div class="card {{if .Unmanaged}}warn{{end}}" title="Machines whose build is not a release sha: a dev or dirty build nobody published. They are never judged against the manifest."><span class="card-n">{{num .Unmanaged}}</span><span class="card-l">unmanaged</span></div>
+  {{end}}
+</div>
+
+{{if .Published}}
+<p class="versions">
+  <span class="versions-label">Latest build</span>
+  <span class="ver ver-latest"><code>{{.Published}}</code></span>
+  {{if not .PublishedAt.IsZero}}<span>published {{stamp .PublishedAt}}</span>{{end}}
+  <span class="sub">From the release manifest (latest.json). A machine on this commit is current and any other sha is behind; the daemon self-upgrades at its next check, and a machine still behind after a day is listed above.</span>
+</p>
+<p class="versions versions-server">
+  <span class="versions-label">Server build</span>
+  <code>{{.Latest}}</code>
+  {{if not .LatestBuiltAt.IsZero}}<span>built {{stamp .LatestBuiltAt}}</span>{{end}}
+</p>
+{{else if .Latest}}
+<p class="versions">
+  <span class="versions-label">Latest build</span>
+  <span class="ver ver-latest"><code>{{.Latest}}</code></span>
+  {{if not .LatestBuiltAt.IsZero}}<span>built {{stamp .LatestBuiltAt}}</span>{{end}}
+  <span class="sub">No release manifest is published yet, so the serving build stands in for it: agent releases ship with this build. A machine reports the version its running daemon started with, so a just-upgraded binary shows here one session later.</span>
+</p>
+{{end}}
+
+{{if .Eval}}
+<section class="cta-section" aria-labelledby="cta-heading">
+  <h2 id="cta-heading" class="section-h">Do first</h2>
+  {{if .CTAs}}
+  <div class="scroll">
+  <table class="list cta">
+    <thead>
+      <tr>
+        <th>Level</th>
+        <th>Person</th>
+        <th>What</th>
+        <th>Do</th>
+        <th>Since</th>
+        <th>Mute</th>
+      </tr>
+    </thead>
+    <tbody>
+    {{range .CTAs}}
+      <tr class="cta-row cta-{{.Kind}}">
+        <td><span class="pill pill-{{.LevelClass}}">{{.Level}}</span></td>
+        <td>
+          <span class="who-name">{{.Person}}</span>
+          {{if .Hostname}}<span class="sub mono">{{.Hostname}}</span>{{end}}
+        </td>
+        <td>
+          <a class="cta-kind" href="{{.Runbook}}" title="Runbook: {{.Kind}}"><code>{{.Kind}}</code></a>
+          <span class="sub">{{.Detail}}</span>
+        </td>
+        <td class="cta-do">
+          {{.Action}}.
+          {{if .Command}}<span class="cta-cmd">{{.Ask}} <code>{{.Command}}</code></span>{{end}}
+        </td>
+        <td title="{{if not .Since.IsZero}}{{stamp .Since}}{{end}}">{{if not .Since.IsZero}}{{ago .Since}}{{end}}</td>
+        <td class="c-act">
+          <form method="post" action="/admin/fleet/mute" class="mute-form">
+            <input type="hidden" name="csrf" value="{{$.Page.CSRF}}">
+            {{/* A fleet-wide row names nobody; its mute is filed under the
+                 sentinel person, which the evaluator honours. */}}
+            <input type="hidden" name="email" value="{{.MuteEmail}}">
+            <input type="hidden" name="kind" value="{{.Kind}}">
+            <span class="seg" role="radiogroup" aria-label="Mute {{.Kind}} for {{.Person}} for">
+              {{range $.MuteChoices}}<label class="seg-opt"><input type="radio" name="hours" value="{{.Hours}}"{{if eq .Hours 72}} checked{{end}}><span>{{.Label}}</span></label>{{end}}
+            </span>
+            <input type="text" name="note" class="mute-note" placeholder="why" maxlength="200" aria-label="Why it is muted">
+            <button type="submit">Mute</button>
+          </form>
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+  {{else}}
+  <p class="empty-inline">Nothing to do: no machine needs an operator right now.</p>
+  {{end}}
+
+  {{if .Eval.Muted}}
+  <details class="muted-list">
+    <summary>{{len .Eval.Muted}} muted</summary>
+    <div class="scroll">
+    <table class="list">
+      <thead><tr><th>Person</th><th>What</th><th>Until</th><th>Why</th><th></th></tr></thead>
+      <tbody>
+      {{range .Eval.Muted}}
+        <tr class="off">
+          <td>{{if .Email}}{{.Email}}{{else}}fleet{{end}}</td>
+          <td><code>{{.Kind}}</code><span class="sub">{{.Detail}}</span></td>
+          <td>{{if .Muted}}<span title="{{stamp .Muted.Until}}">{{stamp .Muted.Until}}</span>{{end}}</td>
+          <td>{{if .Muted}}{{.Muted.Note}}{{if .Muted.CreatedBy}} <span class="sub">by {{.Muted.CreatedBy}}</span>{{end}}{{end}}</td>
+          <td class="c-act">
+            <form method="post" action="/admin/fleet/unmute">
+              <input type="hidden" name="csrf" value="{{$.Page.CSRF}}">
+              {{/* The mute that holds this row back is the one to lift: a
+                   person's own, or the sentinel's when the kind is muted
+                   for the fleet. */}}
+              <input type="hidden" name="email" value="{{if .Muted}}{{.Muted.Email}}{{else}}{{.Email}}{{end}}">
+              <input type="hidden" name="kind" value="{{.Kind}}">
+              <button type="submit">Unmute</button>
+            </form>
+          </td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    </div>
+  </details>
+  {{end}}
+</section>
+{{end}}
+
+<form class="filters" method="get" action="/admin/fleet">
+  <label>Person or machine
+    <span class="combo">
+      <input type="search" name="q" value="{{.Q}}" spellcheck="false" autocomplete="off" placeholder="name, email or hostname &mdash; type to search">
+      <span class="combo-panel">
+        {{range .Options}}<a{{if eq . $.Q}} class="on"{{end}} href="/admin/fleet?q={{.}}">{{.}}</a>{{end}}
+      </span>
+    </span>
+  </label>
+  {{if .Q}}<a class="clear" href="/admin/fleet">Clear</a>{{end}}
+</form>
+
+{{if .Machines}}
+<div class="scroll">
+<table class="list">
+  <thead>
+    <tr>
+      <th>State</th>
+      <th>Person</th>
+      <th>Machine</th>
+      <th>Last report</th>
+      <th class="n">Queued</th>
+      <th class="n">Oldest</th>
+      <th class="n" title="Sessions this machine started in the last day that ended before a first prompt, as its client counted them. Empty when the client predates the field.">Empty starts (24 h)</th>
+      <th>Conditions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {{range .Machines}}
+    <tr>
+      <td><span class="pill pill-{{.Worst}}">{{.Worst}}</span></td>
+      <td>
+        <span class="who-name">{{if .Machine.Name}}{{.Machine.Name}}{{else}}{{.Machine.Email}}{{end}}</span>
+        {{if .Machine.Name}}<span class="sub">{{.Machine.Email}}</span>{{end}}
+      </td>
+      <td>
+        <span class="mono">{{.Machine.Report.Hostname}}</span>
+        <span class="sub">
+          {{.Machine.Report.OS}}/{{.Machine.Report.Arch}}
+          {{/* The hash IS the badge: green when it matches the published
+               build, yellow when it is behind, grey for an unmanaged build.
+               The colour carries the verdict, so the words would repeat it;
+               the lag in hours is the one thing colour cannot say. */}}
+          <span class="pill pill-ver-{{.VersionBadge}}" title="{{.VersionTitle}}">{{if .Version}}{{.Version}}{{else}}unknown{{end}}</span>
+          {{if .Lag}}<span class="lag">{{.Lag}}</span>{{end}}
+          {{/* Mid-upgrade a laptop runs the old daemon until its session
+               ends while new sessions already run the new binary; the row
+               is current and says which build is still draining. */}}
+          {{if .AlsoRunning}}<span class="lag" title="The old daemon keeps running until the session that started it ends; new sessions are on the published build.">running {{.AlsoRunning}} alongside {{.Version}}</span>{{end}}
+          {{if eq .VersionBadge "unmanaged"}}<span class="lag">unmanaged</span>{{end}}
+          {{/* The date is row text, not a hover title: keyboard and touch
+               users never meet a title attribute, and "how long has this
+               machine been left out" is the column's whole question. */}}
+          {{if not .VersionSince.IsZero}}since {{stamp .VersionSince}}{{end}}
+        </span>
+      </td>
+      <td title="{{stamp .Machine.ReceivedAt}}">
+        {{ago .Machine.ReceivedAt}}
+        {{if .Machine.Report.Paused}}<span class="tag">paused</span>{{end}}
+      </td>
+      <td class="n">{{num .Machine.Report.Spool.Pending}}{{if .Machine.Report.Spool.Quarantine}} <span class="bad" title="Quarantined">+{{num .Machine.Report.Spool.Quarantine}}</span>{{end}}</td>
+      <td class="n">{{dur .Machine.Report.Spool.OldestAge}}</td>
+      <td class="n">{{if .EmptyStarts}}{{.EmptyStarts}}{{else}}<span class="sub" title="The client on this machine predates the field.">n/a</span>{{end}}</td>
+      <td class="conds">
+        {{if .Machine.Silent}}<span class="cond cond-critical"><b>silent</b> no report since {{ago .Machine.ReceivedAt}}</span>{{end}}
+        {{range .Machine.Report.Conditions}}
+        <span class="cond cond-{{.Level}}"><b>{{.Kind}}</b> {{.Detail}}</span>
+        {{end}}
+        {{if .Machine.Report.LastError}}<span class="cond cond-degraded"><b>last error</b> {{.Machine.Report.LastError}}</span>{{end}}
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{else}}
+<div class="empty"><p><b>No health reports yet.</b></p><p>Machines report on a fixed cadence whether or not anything happened, so an empty page means nothing has enrolled.</p></div>
+{{end}}
+{{end}}
+
+{{define "scripts"}}<script src="{{asset "combo.js"}}" defer></script>{{end}}

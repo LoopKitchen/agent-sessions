@@ -1,0 +1,239 @@
+{{define "seg"}}{{range .}}{{if .Match}}<mark>{{.Text}}</mark>{{else}}{{.Text}}{{end}}{{end}}{{end}}
+
+{{define "markdown"}}<div class="markdown">{{template "markdown-nodes" (markdown .)}}</div>{{end}}
+{{define "message-body"}}
+{{if .LongMessage}}
+<details class="message-expand"{{if .Matched}} open{{end}}>
+  <summary><span class="message-preview">{{template "seg" .MessagePreview}}</span><span class="message-more">Read full message</span><span class="message-less">Collapse message</span></summary>
+  {{template "markdown" .Text}}
+</details>
+{{else}}{{template "markdown" .Text}}{{end}}
+{{end}}
+{{define "markdown-nodes"}}{{range .}}{{if eq .Kind "plain"}}<pre>{{template "seg" .Segments}}</pre>{{else if eq .Kind "Paragraph"}}<p>{{template "markdown-nodes" .Children}}</p>{{else if eq .Kind "Heading"}}{{if eq .Level 1}}<h2>{{template "markdown-nodes" .Children}}</h2>{{else if eq .Level 2}}<h3>{{template "markdown-nodes" .Children}}</h3>{{else}}<h4>{{template "markdown-nodes" .Children}}</h4>{{end}}{{else if eq .Kind "Emphasis"}}{{if eq .Level 2}}<strong>{{template "markdown-nodes" .Children}}</strong>{{else}}<em>{{template "markdown-nodes" .Children}}</em>{{end}}{{else if eq .Kind "CodeSpan"}}<code>{{template "markdown-nodes" .Children}}</code>{{else if or (eq .Kind "FencedCodeBlock") (eq .Kind "CodeBlock") (eq .Kind "HTMLBlock")}}<pre>{{.Text}}</pre>{{else if eq .Kind "Blockquote"}}<blockquote>{{template "markdown-nodes" .Children}}</blockquote>{{else if eq .Kind "List"}}{{if .Ordered}}<ol start="{{.Start}}">{{template "markdown-nodes" .Children}}</ol>{{else}}<ul>{{template "markdown-nodes" .Children}}</ul>{{end}}{{else if eq .Kind "ListItem"}}<li>{{template "markdown-nodes" .Children}}</li>{{else if or (eq .Kind "Link") (eq .Kind "AutoLink")}}{{if .URL}}<a href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{.Text}}{{template "markdown-nodes" .Children}}</a>{{else}}{{.Text}}{{template "markdown-nodes" .Children}}{{end}}{{else if eq .Kind "Table"}}<table>{{template "markdown-nodes" .Children}}</table>{{else if eq .Kind "TableHeader"}}<thead><tr>{{template "markdown-nodes" .Children}}</tr></thead>{{else if eq .Kind "TableRow"}}<tr>{{template "markdown-nodes" .Children}}</tr>{{else if eq .Kind "TableCell"}}<td>{{template "markdown-nodes" .Children}}</td>{{else if eq .Kind "Strikethrough"}}<del>{{template "markdown-nodes" .Children}}</del>{{else if eq .Kind "ThematicBreak"}}<hr>{{else}}{{.Text}}{{template "markdown-nodes" .Children}}{{end}}{{end}}{{end}}
+
+{{define "runs"}}{{range .Runs}}{{if .Work}}
+<details class="work-run"{{if .Matched}} open{{end}}>
+  <summary>Work log <span class="count">{{len .Blocks}} step{{if ne (len .Blocks) 1}}s{{end}}</span>{{if .Errors}} <span class="bad">{{.Errors}} failed</span>{{end}}</summary>
+  {{range .Blocks}}{{template "block" .}}{{end}}
+</details>
+{{else}}{{range .Blocks}}{{template "block" .}}{{end}}{{end}}{{end}}{{end}}
+
+{{define "diff"}}
+<figure class="diff">
+  <figcaption>
+    <span class="diff-path">{{.Path}}</span>
+    {{if .Created}}<span class="tag tag-new">new file</span>{{end}}
+    <span class="diff-count"><span class="add">+{{.Added}}</span> <span class="del">&minus;{{.Removed}}</span></span>
+    {{if .Coarse}}<span class="tag tag-warn" title="Too large to align line by line">block replace</span>{{end}}
+    {{if .Truncated}}<span class="tag tag-warn">shortened</span>{{end}}
+  </figcaption>
+  <div class="diff-body">
+{{range .Lines}}{{if eq .Kind "gap"}}<div class="dl dl-gap"><span class="ln"></span><span class="ln"></span><span class="dt">{{.Text}}</span></div>{{else}}<div class="dl dl-{{.Kind}}"><span class="ln">{{if .OldLine}}{{.OldLine}}{{end}}</span><span class="ln">{{if .NewLine}}{{.NewLine}}{{end}}</span><span class="dt">{{.Text}}</span></div>{{end}}
+{{end}}  </div>
+</figure>
+{{end}}
+
+{{define "usage"}}
+<span class="chips">
+  {{if .InputTokens}}<span class="chip" title="Input tokens">in {{tokens .InputTokens}}</span>{{end}}
+  {{if .OutputTokens}}<span class="chip" title="Output tokens">out {{tokens .OutputTokens}}</span>{{end}}
+  {{if .CacheReadTokens}}<span class="chip" title="Cache read tokens">cache {{tokens .CacheReadTokens}}</span>{{end}}
+  {{if .CacheCreationTokens}}<span class="chip" title="Cache write tokens">write {{tokens .CacheCreationTokens}}</span>{{end}}
+</span>
+{{end}}
+
+{{/* turn is one exchange as the runner folded it: the person's prompt (a
+     bubble, or a chip for a slash command), the harness's own records as
+     collapsed neutral rows, the work collapsed under its timing label, the
+     subagents nested inside the work, and the answer slot by outcome. */}}
+{{define "turn"}}
+{{if .Divider}}<p class="turn-divider">{{.Divider}}{{if .DividerLink}} <a href="/sessions/{{.DividerLink}}">{{short .DividerLink}}</a>{{end}}</p>{{end}}
+<section class="turn turn-{{.Outcome}}{{if .Inherited}} turn-inherited{{end}}" id="{{.Anchor}}" data-turn="{{.Index}}" data-thread="{{.Thread}}" data-outcome="{{.Outcome}}">
+  {{if .Prompt}}
+    {{if .Command}}
+    <article class="blk blk-prompt" id="{{.Prompt.Anchor}}" data-event-id="{{.Prompt.EventID}}" data-at="{{.Prompt.At.UnixMilli}}">
+      <div class="gutter"><a class="el" href="#{{.Prompt.Anchor}}" title="{{stamp .Prompt.At}}">{{elapsed .Prompt.Elapsed}}</a></div>
+      <div class="body">
+        <div class="who">{{.Prompt.Actor}}</div>
+        <span class="chip-cmd" title="{{range .Prompt.Text}}{{.Text}}{{end}}">{{.Command}}{{if .Args}}<span class="chip-args">{{.Args}}</span>{{end}}</span>
+      </div>
+    </article>
+    {{else}}{{template "block" .Prompt}}{{end}}
+  {{else if .Head}}
+    <p class="turn-head">Work recorded before the first captured prompt.</p>
+  {{end}}
+  {{range .Context}}{{template "block" .}}{{end}}
+  {{if .HasWork}}
+  <details class="work-summary"{{if .Matched}} open{{end}}>
+    <summary title="Recorded {{stamp .FirstActivityAt}} to {{stamp .LastActivityAt}}. Active time is the sum of gaps under five minutes between the turn's events; the rest is idle.">{{.WorkLabel}}{{if .Errors}} <span class="bad">{{.Errors}} failed</span>{{end}}{{if .TwoSources}} <span class="tag" title="Captured both live and from the transcript; each moment is shown once">2 sources</span>{{end}}</summary>
+    {{range .Work}}{{template "block" .}}{{end}}
+    {{range .Agents}}{{template "agent-turn" .}}{{end}}
+  </details>
+  {{end}}
+  {{template "answer" .}}
+</section>
+{{end}}
+
+{{/* answer is the slot every turn ends with, decided by the fold's outcome
+     and never by the page: the final answer when there is one, a chip for an
+     interruption, and a placeholder that names the client fix when the answer
+     was never captured. That placeholder has two readings and a reader cannot
+     tell them apart from the outcome alone, so AnswerAwaitsWalk splits them:
+     a client that lost the answer, against a turn the harness left no Stop
+     hook for because background work was still holding it open, where the
+     walk will supply the answer and there is nothing to fix. The no-work
+     sentence needs a prompt to follow: a head turn and a turn a wrapper
+     opened have no bubble for it to refer to. */}}
+{{define "answer"}}
+{{if eq .Outcome "answered"}}{{if .Final}}{{template "block" .Final}}{{end}}
+{{else if eq .Outcome "interrupted"}}{{if .Final}}{{template "block" .Final}}{{end}}<p class="answer-slot answer-interrupted"><span class="chip">Interrupted by you</span></p>
+{{else if eq .Outcome "no_answer_captured"}}{{if .AnswerAwaitsWalk}}<p class="answer-slot answer-missing answer-awaits-walk" role="note">Answer not captured yet. Background work held this turn open, and Claude Code runs no Stop hook while it does, so the live path had no copy of the answer to store. Nothing is wrong with the client here: the answer arrives when this session's transcript is walked, which the daily repair walk does while the file is still on the laptop.</p>{{else}}<p class="answer-slot answer-missing" role="note">Answer not captured. The client that recorded this turn read a Stop field Claude Code does not send (builds before <code>788dcb3</code>). Upgrade it with <code>loop-sessions daemon --upgrade-now</code>; the daily repair walk recovers the answer from the transcript while it is still on the laptop.</p>{{end}}
+{{else if eq .Outcome "no_work"}}{{if .Prompt}}<p class="answer-slot answer-nowork">No work or answer followed this prompt.</p>{{end}}
+{{else if eq .Outcome "in_progress"}}<p class="answer-slot answer-live"><span class="chip">In progress</span></p>
+{{end}}
+{{end}}
+
+{{/* agent-turn nests a subagent's turn under the main turn that spawned it:
+     the task prompt labelled as such, its work, its answer. */}}
+{{define "agent-turn"}}
+<details class="grp grp-agent" id="{{.Anchor}}" data-thread="{{.Thread}}"{{if .Matched}} open{{end}}>
+  <summary class="grp-head">
+    <span class="tag tag-agent">subagent</span>
+    <span class="grp-name">{{.Label}}</span>
+    {{if .AgentType}}<span class="tag tag-type">{{.AgentType}}</span>{{end}}
+    <span class="grp-stats">{{.OutcomeLabel}}{{if .ToolCalls}} &middot; {{.ToolCalls}} tools{{end}}{{if .Errors}} &middot; <span class="bad">{{.Errors}} failed</span>{{end}}{{if .Active}} &middot; {{dur .Active}}{{end}}</span>
+  </summary>
+  <div class="grp-body">
+    {{if .Prompt}}
+    <article class="blk blk-task" id="{{.Prompt.Anchor}}" data-event-id="{{.Prompt.EventID}}" data-at="{{.Prompt.At.UnixMilli}}">
+      <div class="gutter"><a class="el" href="#{{.Prompt.Anchor}}" title="{{stamp .Prompt.At}}">{{elapsed .Prompt.Elapsed}}</a></div>
+      <div class="body"><div class="who">Task</div>{{template "message-body" .Prompt}}</div>
+    </article>
+    {{end}}
+    {{range .Context}}{{template "block" .}}{{end}}
+    {{range .Work}}{{template "block" .}}{{end}}
+    {{template "answer" .}}
+  </div>
+</details>
+{{end}}
+
+{{define "block"}}
+{{if .GapBefore}}<div class="gap"><span>{{dur .GapBefore}} idle</span></div>{{end}}
+<article class="blk blk-{{.Kind}}{{if .Failed}} is-fail{{end}}" id="{{.Anchor}}" data-event-id="{{.EventID}}" data-at="{{.At.UnixMilli}}">
+  <div class="gutter">
+    <a class="el" href="#{{.Anchor}}" title="{{stamp .At}}">{{elapsed .Elapsed}}</a>
+  </div>
+  <div class="body">
+
+  {{if eq .Kind "prompt"}}
+    <div class="who">{{.Actor}}</div>
+    {{template "message-body" .}}
+
+  {{else if eq .Kind "internal"}}
+    <details class="internal-message"{{if .Matched}} open{{end}}>
+      <summary><span class="tname">{{.Title}}</span>{{if .NotificationSummary}} <span class="targ">{{.NotificationSummary}}</span>{{end}}</summary>
+      <pre class="txt">{{template "seg" .Text}}</pre>
+      <a href="{{.EventURL}}">Original event</a>
+    </details>
+
+  {{else if eq .Kind "assistant"}}
+    <div class="who">{{.Actor}}{{if .Model}} <span class="model">{{.Model}}</span>{{end}}</div>
+    {{if .Text}}{{template "message-body" .}}{{end}}
+    {{if .Usage}}{{template "usage" .Usage}}{{end}}
+
+  {{else if eq .Kind "tool"}}
+    <details class="tool"{{if or .Failed .Matched}} open{{end}}>
+      <summary>
+        <span class="tname">{{if .Tool.Name}}{{.Tool.Name}}{{else}}tool{{end}}</span>
+        <span class="targ">{{.Tool.Summary}}</span>
+        {{if .Failed}}<span class="tag tag-bad">failed</span>{{end}}
+      </summary>
+      <div class="tool-body">
+        {{if .Tool.Input}}
+        <div class="pane">
+          <div class="pane-head">arguments</div>
+          <pre class="txt">{{template "seg" .Tool.Input}}</pre>
+          {{if .Tool.InputTruncated}}<p class="cut">Shortened for display. <a href="{{.EventURL}}">Open the full event</a>.</p>{{end}}
+        </div>
+        {{end}}
+        {{if .Tool.Error}}<p class="err">{{.Tool.Error}}</p>{{end}}
+        {{if .Tool.Output}}
+        <div class="pane">
+          <div class="pane-head">result{{if .Tool.OutputElided}} <span class="tag tag-warn" title="The client shipped a shortened result">clipped at capture</span>{{end}}</div>
+          <pre class="txt">{{template "seg" .Tool.Output}}</pre>
+          {{if .Tool.OutputTruncated}}<p class="cut">Shortened for display. <a href="{{.EventURL}}">Open the full event</a>.</p>{{end}}
+        </div>
+        {{end}}
+        {{range .Diffs}}{{template "diff" .}}{{end}}
+      </div>
+    </details>
+
+  {{else}}
+    <div class="notice">
+      <span class="notice-kind">{{.Title}}</span>
+      {{if .Text}}<span class="notice-text">{{template "seg" .Text}}</span>{{end}}
+    </div>
+  {{end}}
+
+  {{if .TextTruncated}}<p class="cut">Shortened for display. <a href="{{.EventURL}}">Open the full event</a>.</p>{{end}}
+  </div>
+</article>
+{{end}}
+
+{{define "group"}}
+{{if .Subagent}}
+{{$s := .Stats}}
+<details class="grp grp-agent"{{if .Matched}} open{{end}}>
+  <summary class="grp-head">
+    <span class="tag tag-agent">subagent</span>
+    <span class="grp-name">{{.Label}}</span>
+    <span class="grp-stats">{{$s.Blocks}} steps{{if $s.Tools}} &middot; {{$s.Tools}} tools{{end}}{{if $s.Errors}} &middot; <span class="bad">{{$s.Errors}} failed</span>{{end}}{{if $s.Span}} &middot; {{dur $s.Span}}{{end}}</span>
+  </summary>
+  <div class="grp-body">{{template "runs" .}}</div>
+</details>
+{{else}}
+<div class="grp">{{template "runs" .}}</div>
+{{end}}
+{{end}}
+
+{{/* chart draws a laid-out ChartView as inline SVG. Geometry arrives computed;
+     everything interpolated here — coordinates, captions, hover labels that
+     carry display names — passes through contextual escaping, which is the
+     whole reason the SVG is a template rather than a string built in Go.
+     Colours are classes so the CSS theme owns them.
+
+     The hit groups are the hover affordance: an invisible column per bucket,
+     and inside it a crosshair rule plus a value panel that CSS reveals on
+     hover. They are drawn after the marks so they sit above them, and the
+     panel is drawn inside the same group so hovering anywhere in the column
+     keeps it open. */}}
+{{define "chart"}}{{if not .Empty}}
+<svg class="chart" viewBox="0 0 {{.W}} {{.H}}" preserveAspectRatio="xMidYMid meet" role="img" aria-hidden="true">
+  {{$c := .}}
+  {{range .Grid}}<line class="grid" x1="{{$c.GridX0}}" y1="{{.}}" x2="{{$c.W}}" y2="{{.}}"/>{{end}}
+  <text class="ylab" x="{{.LabelX}}" y="{{.YTopY}}">{{.YTop}}</text>
+  <text class="ylab" x="{{.LabelX}}" y="{{.YZeroY}}">0</text>
+  {{range .XLabels}}<text class="xlab" x="{{.X}}" y="{{sub $c.H 4}}">{{.Text}}</text>{{end}}
+  {{range .Bars}}<rect class="bar c{{.Color}}" x="{{.X}}" y="{{.Y}}" width="{{.W}}" height="{{.H}}"/>{{end}}
+  {{range .Lines}}
+  <path class="line c{{.Color}}" d="{{.D}}"/>
+  {{range .Points}}<circle class="pt c{{.Color}}" cx="{{.X}}" cy="{{.Y}}" r="2.5"/>{{end}}
+  {{end}}
+  {{range .Hits}}
+  <g class="hit">
+    <rect class="hit-zone" x="{{.X0}}" y="0" width="{{.W}}" height="{{$c.H}}"/>
+    <g class="hover">
+      <line class="xline" x1="{{.RuleX}}" y1="{{$c.YTopY}}" x2="{{.RuleX}}" y2="{{$c.YZeroY}}"/>
+      <rect class="tipbox" x="{{.PanelX}}" y="{{.PanelY}}" width="{{.PanelW}}" height="{{.PanelH}}" rx="6"/>
+      <text class="tiptitle" x="{{addf .PanelX 8}}" y="{{.TitleY}}">{{.Title}}</text>
+      {{range .Rows}}
+      <g class="tiprow c{{.Color}}">
+        {{if .Sw}}<rect class="tipsw c{{.Color}}" x="{{.SwX}}" y="{{subf .Y 8}}" width="9" height="9" rx="2"/>{{end}}
+        <text class="tiptext" x="{{.TextX}}" y="{{.Y}}">{{if .Label}}{{.Label}}: {{end}}{{.Value}}</text>
+      </g>
+      {{end}}
+    </g>
+  </g>
+  {{end}}
+</svg>
+{{end}}{{end}}

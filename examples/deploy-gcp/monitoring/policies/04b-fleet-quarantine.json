@@ -1,0 +1,53 @@
+{
+  "displayName": "loop-sessions: a machine holds quarantined items",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "ERROR",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "fleet",
+    "asset": "04b-fleet-quarantine"
+  },
+  "conditions": [
+    {
+      "displayName": "machines with a non-empty quarantine at or above 1 for 30 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/fleet_quarantine_devices\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "1800s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "At least one laptop holds items the server refused for good, or (on a client older than the quarantine fix) items it gave up on after eight undecided verdicts. Nothing retries them on its own. When the quarantine fix is first promoted, machines that hit the old attempt cap are still in this state, so this alert may be open on day one: it is the backlog the fix exists to burn down, and the CTA list on /admin/fleet ranks these rows first for that reason.\n\nPer person, on their machine: `loop-sessions doctor --replay-quarantine` posts one quarantined item on its own and prints the server's verdict. Accepted means the server has since been fixed for that shape: `loop-sessions doctor --redrive` queues the rest again. Rejected with a reason means the items are genuinely bad; the reason says whether it is a client bug (`no_session_id`, `no_id`) or content the server will never take, in which case the person deletes the quarantine directory the doctor names. Mute the row on /admin/fleet while a person is away; the mute has an until and a note.\n\nRunbook: examples/deploy-gcp/README.md#runbook-quarantine",
+    "links": [
+      {
+        "displayName": "Runbook: quarantine",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-quarantine"
+      },
+      {
+        "displayName": "/admin/fleet",
+        "url": "__PUBLIC_URL__/admin/fleet"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_FLEET__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

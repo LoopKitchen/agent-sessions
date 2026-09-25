@@ -1,0 +1,28 @@
+# gitleaks configuration for loop-sessions.
+#
+# Three test files carry credential-shaped strings on purpose. They are the
+# corpus the credential scrubber (internal/scrub) is tested against, and a
+# scrubber whose tests contain nothing that looks like a secret tests nothing.
+# Every value in them is synthetic: documented example keys, the jwt.io sample
+# token, made-up filler behind real vendor prefixes. Each file says so in a
+# comment at its top. They are allowlisted here by path so a scan run by a
+# contributor, a fork or CI does not report the test corpus as a leak; the
+# rest of the tree is scanned with the default rules, and a real secret
+# anywhere else is still reported.
+#
+# .github/secret_scanning.yml carries the same three paths for GitHub's own
+# scanner. Keep the two lists identical.
+
+title = "loop-sessions"
+
+[extend]
+# Every built-in rule stays on; this file only adds an allowlist.
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic credential fixtures for the scrubber tests"
+paths = [
+  '''internal/scrub/scrub_test\.go$''',
+  '''internal/receiver/receiver_test\.go$''',
+  '''server/ingest/scrub_test\.go$''',
+]

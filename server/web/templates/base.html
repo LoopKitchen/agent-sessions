@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Page.Title}} — loop sessions</title>
+<link rel="stylesheet" href="{{asset "app.css"}}">
+<link rel="icon" href="data:,">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <a class="brand" href="/sessions">loop<span class="brand-sep">/</span>sessions</a>
+
+  <nav class="nav" aria-label="Sections">
+    <a href="/sessions" {{if eq .Page.Nav "sessions"}}class="on" aria-current="page"{{end}}>Sessions</a>
+    {{/* Everyone: a member's analytics page shows their own numbers. */}}
+    <a href="/analytics" {{if eq .Page.Nav "analytics"}}class="on" aria-current="page"{{end}}>Analytics</a>
+    {{/* Everyone: the fleet's skill aggregates go to every member; the
+         person panels are scoped by the store. */}}
+    <a href="/skills" {{if eq .Page.Nav "skills"}}class="on" aria-current="page"{{end}}>Skills</a>
+    {{if .Page.Viewer.Admin}}
+    <a href="/admin/principals" {{if eq .Page.Nav "admin"}}class="on" aria-current="page"{{end}}>People</a>
+    <a href="/admin/fleet" {{if eq .Page.Nav "fleet"}}class="on" aria-current="page"{{end}}>Fleet</a>
+    <a href="/admin/access" {{if eq .Page.Nav "access"}}class="on" aria-current="page"{{end}}>Access log</a>
+    {{end}}
+    {{/* Everyone: notifications are each person's own sessions and consent. */}}
+    <a href="/settings/notifications" {{if eq .Page.Nav "settings"}}class="on" aria-current="page"{{end}}>Notifications</a>
+    {{/* Shown to everybody, not just admins. Anyone with a second machine
+         needs it, and a person whose dashboard is empty because they have not
+         installed the agent is exactly the person who cannot find the page
+         that says so. Served by the app package rather than this one, so it is
+         a plain link rather than a Nav case. */}}
+    <a href="/install">Install</a>
+  </nav>
+
+  <form class="find" action="/sessions" method="get" role="search">
+    <input type="search" name="q" value="{{.Page.Query}}" placeholder="Search sessions" aria-label="Search sessions and transcripts" spellcheck="false">
+  </form>
+
+  <div class="me" title="{{.Page.Viewer.Email}}">
+    {{.Page.Viewer.Display}}{{if .Page.Viewer.Admin}} <span class="tag tag-admin">admin</span>{{end}}
+  </div>
+</header>
+
+<main id="main">
+{{if .Page.Notice}}<p class="flash flash-ok" role="status">{{.Page.Notice}}</p>{{end}}
+{{if .Page.Error}}<p class="flash flash-bad" role="alert">{{.Page.Error}}</p>{{end}}
+{{template "content" .}}
+</main>
+
+<footer class="foot">
+  <span>Reads of other people's sessions are recorded.</span>
+</footer>
+{{/* The continuous reader loads bounded, authorized archive pages on scroll.
+     Archive pages remain script-free. Filter pages override this block for
+     combo.js; Secure matches both route families explicitly. */}}
+{{block "scripts" .}}{{if .Page.Continuous}}<script src="{{asset "conversation.js"}}" defer></script>{{end}}{{end}}
+</body>
+</html>

@@ -1,0 +1,35 @@
+# The fleet tick writes one "skill platform summary" line per expected
+# (platform, environment, origin, trigger) series, computed from the newest
+# row of the table, never per token: minutes since that row, with the US
+# Eastern weekend not counted, or the sentinel 100000 for a series that
+# never had a row. A channel that stopped emitting shows here without
+# anybody reading the table.
+name: loop_sessions/skill_silence_minutes
+description: Minutes since the newest skill invocation of each expected series (field minutes_since_last_row of the server line "skill platform summary")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="skill platform summary"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: DISTRIBUTION
+  unit: "min"
+  labels:
+    - key: platform
+      valueType: STRING
+    - key: environment
+      valueType: STRING
+    - key: origin
+      valueType: STRING
+    - key: trigger
+      valueType: STRING
+labelExtractors:
+  platform: EXTRACT(jsonPayload.platform)
+  environment: EXTRACT(jsonPayload.environment)
+  origin: EXTRACT(jsonPayload.origin)
+  trigger: EXTRACT(jsonPayload.trigger)
+valueExtractor: EXTRACT(jsonPayload.minutes_since_last_row)
+bucketOptions:
+  explicitBuckets:
+    bounds: [0, 60, 240, 720, 1440, 2880, 10080, 100000]

@@ -1,0 +1,38 @@
+# How far behind the database the analytics export is, from the job's own
+# "export run" line (server/export, LogRun): lag_seconds is the age of the
+# oldest watermark in force after the run, against the database clock. A
+# distribution rather than a counter because the value is the number
+# itself; the alert reads its percentile per hour.
+#
+# The resource is the Cloud Run JOB, not the service: the export is
+# loop-sessions-export (examples/deploy-gcp/analytics/job.yaml), a separate
+# process from the same image, and its stdout lands under cloud_run_job.
+# Every run writes one line, failed or not (status says which), so an
+# absence of points is the job not running at all, which the policy treats
+# as lag too.
+name: loop_sessions/export_lag_seconds
+description: Export lag in seconds after each run of the loop-sessions-export job, from the "export run" line
+filter: >-
+  resource.type="cloud_run_job"
+  AND resource.labels.job_name="loop-sessions-export"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="export run"
+valueExtractor: EXTRACT(jsonPayload.lag_seconds)
+metricDescriptor:
+  metricKind: DELTA
+  valueType: DISTRIBUTION
+  unit: s
+  labels:
+    - key: status
+      valueType: STRING
+      description: ok, failed or timeout
+labelExtractors:
+  status: EXTRACT(jsonPayload.status)
+# Exponential buckets from one minute to about a year (60 x 2^24 s), so an
+# hourly cadence, a day of catch-up and a month of the job being off all
+# land in distinct buckets.
+bucketOptions:
+  exponentialBuckets:
+    numFiniteBuckets: 24
+    growthFactor: 2
+    scale: 60

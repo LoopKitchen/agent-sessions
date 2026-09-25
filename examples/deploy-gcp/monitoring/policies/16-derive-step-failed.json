@@ -1,0 +1,49 @@
+{
+  "displayName": "loop-sessions: a derive step reached its retry cap",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "data",
+    "asset": "16-derive-step-failed"
+  },
+  "conditions": [
+    {
+      "displayName": "derive step failed lines above 0 in 15 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/derive_step_failed\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "900s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "A step of the derived rebuild (turns, turn_events, session facets) failed as many times as the runner allows and the runner has stopped advancing it. Everything downstream of that step (the reader, the list, search ranking, the Slack mirror, the missing-answer cohorts) is reading rows that stopped moving.\n\nThe line carries the recovery statement: `gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"derive step failed\"' --freshness=1h --format='value(jsonPayload.step,jsonPayload.attempts,jsonPayload.error,jsonPayload.recover)'`. Read the error first: a statement timeout or a deadlock is transient and the recover statement (`UPDATE derive_jobs SET attempts = 0 WHERE version = <n> AND step = '<step>'`, run through the proxy) lets the runner try again; a constraint violation or a decode error is a bug in the step, fix it and deploy, then reset attempts.\n\nRunbook: examples/deploy-gcp/README.md#runbook-derive",
+    "links": [
+      {
+        "displayName": "Runbook: derive",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-derive"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

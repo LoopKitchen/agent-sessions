@@ -1,0 +1,34 @@
+# One per /v1/events request, from the server's "ingest batch" line
+# (server/ingest/ingest.go, logBatch). The labels are what the rejection-rate
+# and per-build views split on; the counts inside the line are not extracted
+# here because a counter metric counts lines, not field values. status and
+# rejected are numbers in the line: the LogMetric reference says a field's
+# value is converted to a string before a regex is applied and an extracted
+# value is converted to the label's type, so a STRING label reads them as
+# "200" and "3". The apply-monitoring runbook says how to confirm that on
+# the first apply.
+name: loop_sessions/ingest_batches
+description: One per /v1/events request, labelled by agent build, HTTP status and whether any item was rejected (server line "ingest batch")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="ingest batch"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: agent_version
+      valueType: STRING
+      description: The build in the agent's User-Agent, empty for anything that is not the agent
+    - key: status
+      valueType: STRING
+      description: HTTP status the request was answered with
+    - key: had_rejects
+      valueType: STRING
+      description: The rejected count when it is above zero, else empty
+labelExtractors:
+  agent_version: EXTRACT(jsonPayload.agent_version)
+  status: EXTRACT(jsonPayload.status)
+  had_rejects: REGEXP_EXTRACT(jsonPayload.rejected, "^([1-9][0-9]*)")

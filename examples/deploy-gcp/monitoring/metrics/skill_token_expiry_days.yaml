@@ -1,0 +1,33 @@
+# The fleet tick writes one "skill token summary" line per live source
+# token with expires_in_days, the days until its mandatory expiry. A
+# distribution with the value extracted, read back at p99 with REDUCE_MIN,
+# so the nearest expiry across the fleet is what policy 17d compares. A
+# short-lived mint (issued_days under 14, the one-day catalog token for
+# the vendor built-ins) is left out, so it never reports as expiring in
+# the hour before its planned revoke; a soft-revoked token is left out
+# because its rotation is already under way.
+name: loop_sessions/skill_token_expiry_days
+description: Days until each live source token expires (field expires_in_days of the server line "skill token summary")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="skill token summary"
+  AND jsonPayload.soft_revoked=false
+  AND jsonPayload.issued_days>=14
+metricDescriptor:
+  metricKind: DELTA
+  valueType: DISTRIBUTION
+  unit: "d"
+  labels:
+    - key: platform
+      valueType: STRING
+    - key: environment
+      valueType: STRING
+labelExtractors:
+  platform: EXTRACT(jsonPayload.platform)
+  environment: EXTRACT(jsonPayload.environment)
+valueExtractor: EXTRACT(jsonPayload.expires_in_days)
+bucketOptions:
+  explicitBuckets:
+    bounds: [0, 1, 3, 7, 14, 30, 60, 90, 180]

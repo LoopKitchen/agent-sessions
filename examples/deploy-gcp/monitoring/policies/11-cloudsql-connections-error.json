@@ -1,0 +1,49 @@
+{
+  "displayName": "loop-sessions: Cloud SQL backends above 360",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "ERROR",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "infra",
+    "asset": "11-cloudsql-connections-error"
+  },
+  "conditions": [
+    {
+      "displayName": "postgresql backends above 360 for 5 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"cloudsql.googleapis.com/database/postgresql/num_backends\" AND resource.type=\"cloudsql_database\" AND resource.labels.database_id=\"__PROJECT__:loop-sessions\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_MEAN",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 360,
+        "duration": "300s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "More than 360 backends: the service's full fan-out (10 x 36) is in use and the next connection an operator or the export job opens is refused. Cloud SQL's own agent needs some of the reserved three, so at this level the instance is one step from refusing everything.\n\nShed load first: `gcloud run services update loop-sessions --region=<region> --max-instances=4` brings the pool ceiling to 144 while the cause is found. Then the same diagnosis as the 300 warning (instance count, `num_backends_by_state`, `pg_stat_activity`). Restore max-instances to 10 afterwards; it is in examples/deploy-gcp/cloudrun.yaml and the next `gcloud run services replace` would do it anyway.\n\nRunbook: examples/deploy-gcp/README.md#runbook-cloudsql",
+    "links": [
+      {
+        "displayName": "Runbook: cloudsql",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-cloudsql"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

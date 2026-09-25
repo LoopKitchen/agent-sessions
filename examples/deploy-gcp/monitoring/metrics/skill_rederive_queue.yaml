@@ -1,0 +1,29 @@
+# The unparked depth of skill_rederive_queue, on the derived series' lines
+# of the "skill platform summary": sessions whose skill rows a savepoint
+# rollback, a lock wait, a step skip or a rollback window lost and the
+# dirty tick has not yet given back. A log-based metric extracts one value,
+# so the queue's age is the sibling file.
+name: loop_sessions/skill_rederive_queue
+description: Sessions waiting in the skill re-derive queue (field rederive_queue of the server line "skill platform summary")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="skill platform summary"
+  AND jsonPayload.origin="derived"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: DISTRIBUTION
+  unit: "1"
+  labels:
+    - key: platform
+      valueType: STRING
+    - key: trigger
+      valueType: STRING
+labelExtractors:
+  platform: EXTRACT(jsonPayload.platform)
+  trigger: EXTRACT(jsonPayload.trigger)
+valueExtractor: EXTRACT(jsonPayload.rederive_queue)
+bucketOptions:
+  explicitBuckets:
+    bounds: [0, 1, 5, 20, 100, 500, 2400]

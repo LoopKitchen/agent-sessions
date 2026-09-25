@@ -1,0 +1,64 @@
+{{define "content"}}
+<nav class="crumbs">
+  <a href="/sessions">Sessions</a> <span>/</span>
+  <a href="/sessions/{{.Session.ID}}">{{short .Session.ID}}</a> <span>/</span>
+  <span>event {{num .Event.Seq}}</span>
+</nav>
+
+<div class="pagehead">
+  <h1>{{.Event.Type}}</h1>
+  <p class="sub">
+    <span title="{{stamp .Event.OccurredAt}}">{{day .Event.OccurredAt}} {{clock .Event.OccurredAt}}</span>
+    <span class="dot">&middot;</span><span>seq {{num .Event.Seq}}</span>
+    <span class="dot">&middot;</span><span class="tag">{{.Event.Origin}}</span>
+    {{if .Event.Model}}<span class="tag">{{.Event.Model}}</span>{{end}}
+    {{if .Event.AgentID}}<span class="tag tag-agent">subagent {{short .Event.AgentID}}</span>{{end}}
+  </p>
+</div>
+
+<p class="provenance">
+  <a class="btn" href="{{.Back}}">Back to the transcript</a>
+  {{if .Truncated}}<span class="tag tag-warn">this event is larger than the page will render</span>{{end}}
+</p>
+
+{{if .Text}}
+<div class="pane">
+  <div class="pane-head">text</div>
+  <pre class="txt">{{template "seg" .Text}}</pre>
+</div>
+{{end}}
+
+{{if .Event.Tool}}
+{{if .Input}}
+<div class="pane">
+  <div class="pane-head">{{.Event.Tool.Name}} arguments</div>
+  <pre class="txt">{{template "seg" .Input}}</pre>
+</div>
+{{else}}
+<p class="provenance">Tool <b>{{.Event.Tool.Name}}</b>. This record carries no arguments.</p>
+{{end}}
+{{if .Event.Tool.Error}}<p class="err">{{.Event.Tool.Error}}</p>{{end}}
+{{if .Output}}
+<div class="pane">
+  <div class="pane-head">result{{if .Event.Tool.Truncated}} <span class="tag tag-warn">clipped at capture</span>{{end}}</div>
+  <pre class="txt">{{template "seg" .Output}}</pre>
+</div>
+{{end}}
+{{end}}
+
+{{range .Diffs}}{{template "diff" .}}{{end}}
+
+{{if .Event.Usage}}
+<div class="pane">
+  <div class="pane-head">usage</div>
+  <div class="pane-inline">{{template "usage" .Event.Usage}}</div>
+</div>
+{{end}}
+
+{{if .Raw}}
+<details class="pane pane-raw">
+  <summary class="pane-head">original record</summary>
+  <pre class="txt">{{template "seg" .Raw}}</pre>
+</details>
+{{end}}
+{{end}}

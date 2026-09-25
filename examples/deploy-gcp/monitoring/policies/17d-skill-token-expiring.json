@@ -1,0 +1,49 @@
+{
+  "displayName": "loop-sessions: a source token expires within two weeks",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "infra",
+    "asset": "17d-skill-token-expiring"
+  },
+  "conditions": [
+    {
+      "displayName": "nearest source token expiry below 14 days for 1 h",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_token_expiry_days\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MIN"
+          }
+        ],
+        "comparison": "COMPARISON_LT",
+        "thresholdValue": 14,
+        "duration": "3600s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "A live source token expires in under fourteen days. Every token carries a mandatory expiry of at most 180 days, and a platform whose token lapses stops posting without a sound (the beacon and the hook drop their 401), so the rotation has to finish before the date. `REDUCE_MIN` reports one incident for the nearest expiry, and the other expiring tokens hide behind it: read every token, not the one the incident names.\n\n`gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"skill token summary\"' --freshness=10m --format='value(jsonPayload.platform,jsonPayload.environment,jsonPayload.source_token_id,jsonPayload.expires_in_days,jsonPayload.last_used_minutes_ago,jsonPayload.rate_limit_per_min)'` grouped by `source_token_id`. For each token under 14 days: mint its successor for the same platform and environment (`POST /v1/admin/source-tokens`, expiries staggered 150 to 180 days so they never share a week), add a GSM version of `loop-sessions-skill-usage-token-<platform>-<environment>`, push it to the vendor, wait for the old row's `last_used_minutes_ago` to climb or 24 h, set the old limit to 0 for a day, revoke. A token that reads `expires_in_days` 0 was hand-inserted with no expiry: revoke it and mint properly.\n\nRunbook: examples/deploy-gcp/README.md#runbook-source-tokens",
+    "links": [
+      {
+        "displayName": "Runbook: source tokens",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-source-tokens"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

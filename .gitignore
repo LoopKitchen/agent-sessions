@@ -1,0 +1,19 @@
+# Built binary at the repo root only. An unanchored pattern here would also
+# match cmd/loop-sessions/, silently untracking the entire CLI.
+/loop-sessions
+*.test
+.DS_Store
+
+# Release output. `make release` writes cross-compiled binaries and their
+# manifest here, and they were being swept into commits by `git add -A`: one
+# commit carried 28MB of binaries under a message describing a source change.
+# They are reproducible from a tag and belong in the release bucket, not in
+# history.
+/dist
+
+# Agent and editor state. None of it belongs in the repository.
+.claude/
+.remember/
+*.local.md
+.idea/
+.vscode/

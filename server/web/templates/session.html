@@ -1,0 +1,237 @@
+{{define "content"}}
+{{$s := .Session}}
+
+<nav class="crumbs"><a href="/sessions">Sessions</a> <span>/</span> <span>{{short $s.ID}}</span></nav>
+
+{{if ne $s.Via "own"}}
+<p class="audit" role="note">
+  You are reading {{if $s.Name}}{{$s.Name}}{{else}}{{$s.Email}}{{end}}&rsquo;s session
+  {{if eq $s.Via "share"}}through a share link{{else}}as an admin{{end}}. This read was recorded.
+</p>
+{{end}}
+
+<div class="pagehead">
+  <h1>
+    {{if not $s.Ended}}<span class="live-dot" title="No end marker recorded"></span>{{end}}
+    {{if $s.Repo}}{{$s.Repo}}{{else if $s.Cwd}}{{$s.Cwd}}{{else}}Session {{short $s.ID}}{{end}}
+  </h1>
+  <p class="sub">
+    {{if $s.Branch}}<span class="branch">{{$s.Branch}}</span>{{end}}
+    <span>{{if $s.Name}}{{$s.Name}}{{else}}{{$s.Email}}{{end}}</span>
+    <span class="dot">&middot;</span>
+    <span title="{{stamp $s.StartedAt}}">{{day $s.StartedAt}} {{clock $s.StartedAt}}</span>
+    <span class="dot">&middot;</span>
+    <span>{{$s.Source}}</span>
+    {{range $s.HarnessVersions}}<span class="tag">{{.}}</span>{{end}}
+  </p>
+</div>
+
+{{/* The skills strip: what this session's own events show it ran, in order.
+     Derived rows only, on both sides of the port: a row a shared cloud token
+     posted under this session's id is not this session's record. */}}
+{{if .Skills}}
+<p class="skill-strip" role="note" aria-label="Skills">
+  <span class="sub">Skills</span>
+  {{range .Skills}}{{if eq .Origin "derived"}}<span class="chip" title="{{stamp .OccurredAt}} {{.Trigger}} {{.Outcome}}">{{.Name}}{{if eq .Outcome "error"}} <span class="tag tag-warn">error</span>{{end}}</span> {{end}}{{end}}
+</p>
+{{end}}
+
+<details class="session-details">
+<summary>Session details <span class="detail-hint">Usage, subagents, sharing &amp; mirroring</span></summary>
+<dl class="stats">
+  <div><dt>Duration</dt><dd>{{dur $s.Duration}}</dd></div>
+  <div><dt>Cost</dt><dd class="money">
+    {{- if .Spend.Priced}}{{cost .Spend.USD}}
+    {{- else if .Spend.Unpriced}}<span class="tag tag-warn">unpriced</span>
+    {{- else}}&mdash;{{end}}
+  </dd></div>
+  <div><dt>Turns</dt><dd>{{num $s.UserTurns}}</dd></div>
+  <div><dt>Tool calls</dt><dd>{{num $s.ToolCalls}}</dd></div>
+  <div><dt>Failures</dt><dd{{if $s.Errors}} class="bad"{{end}}>{{num $s.Errors}}</dd></div>
+  <div><dt>Subagents</dt><dd>{{num $s.Subagents}}</dd></div>
+  <div><dt>Tokens in</dt><dd>{{tokens $s.TokensInput}}</dd></div>
+  <div><dt>Tokens out</dt><dd>{{tokens $s.TokensOutput}}</dd></div>
+  <div><dt>Cache read</dt><dd>{{tokens $s.TokensCacheRead}}</dd></div>
+  <div><dt>Cache write</dt><dd>{{tokens $s.TokensCacheWrite}}</dd></div>
+</dl>
+
+{{if .Spend.Unpriced}}
+<p class="provenance">
+  The token counts above are what this session recorded. Its cost is not known: no rate was on file for
+  {{if .Unpriced}}{{range $i, $m := .Unpriced}}{{if $i}}, {{end}}<code>{{$m}}</code>{{end}}
+  {{- else}}the model it used{{end}}
+  when the usage was counted{{if .Unpriced}} (models seen in the events loaded here; a longer session may have used others){{end}}.
+  Adding a rate to <code>model_prices</code> prices sessions ingested from then on &mdash; a stored cost is never rewritten, so this one stays unpriced.
+</p>
+{{end}}
+
+<p class="provenance">
+  {{if $s.Ended}}Ended <span title="{{stamp $s.EndedAt}}">{{ago $s.EndedAt}}</span>{{else}}No end marker: the session crashed, was killed, or is still running{{end}}.
+  Received <span title="{{stamp $s.IngestedAt}}">{{ago $s.IngestedAt}}</span>.
+  {{if $s.ParentID}}Continues <a href="/sessions/{{$s.ParentID}}">{{short $s.ParentID}}</a>.{{end}}
+  {{if $s.Redactions}}<span class="tag tag-warn" title="Secrets removed before this left the laptop">redacted</span>{{end}}
+</p>
+
+{{if $s.Continuations}}
+<p class="provenance">Continued by
+  {{range $s.Continuations}}<a href="/sessions/{{.ID}}">{{short .ID}}</a> {{end}}
+</p>
+{{end}}
+
+{{if $s.Agents}}
+<div class="agents">
+  <span class="agents-label">Subagents</span>
+  <a class="chip{{if not .Agent}} on{{end}}" href="{{.AllURL}}">whole session</a>
+  {{range $s.Agents}}
+  <a class="chip{{if eq $.Agent .AgentID}} on{{end}}" href="{{index $.AgentURL .AgentID}}">
+    {{if .Name}}{{.Name}}{{else}}{{short .AgentID}}{{end}}
+    <span class="chip-n">{{.ToolCalls}}</span>
+  </a>
+  {{end}}
+</div>
+{{end}}
+
+{{if $s.Shares}}
+<details class="shares">
+  <summary>{{len $s.Shares}} active share{{if ne (len $s.Shares) 1}}s{{end}}</summary>
+  <ul>
+    {{range $s.Shares}}
+    <li>{{if .Grantee}}{{.Grantee}}{{else}}anyone signed in{{end}} &mdash; created by {{.CreatedBy}} {{ago .CreatedAt}}{{if not .ExpiresAt.IsZero}}, expires {{stamp .ExpiresAt}}{{end}}</li>
+    {{end}}
+  </ul>
+</details>
+{{end}}
+
+{{if .Mirrors}}{{end}}{{/* mirror panel is rendered when the port exists; Mirrors nil hides it */}}
+{{if .ShowMirror}}
+<section class="panel">
+  <h2 class="panel-h">Slack mirroring</h2>
+  {{if .Mirrors}}
+  <p class="sub">This session narrates live to:
+    {{range .Mirrors}}
+    <form method="post" action="/sessions/{{$.Session.ID}}/mirror-form" class="inline-form">
+      <input type="hidden" name="csrf" value="{{$.Page.CSRF}}">
+      <input type="hidden" name="group" value="{{.GroupID}}">
+      <input type="hidden" name="action" value="detach">
+      <b>{{.GroupName}}</b> (<code>{{.Dest}}</code>) <button class="btn">Stop</button>
+    </form>
+    {{end}}
+  </p>
+  {{else}}<p class="sub">Not mirrored. Attach a group to narrate this session into Slack as it runs.</p>{{end}}
+  {{if .MirrorGroups}}
+  <form method="post" action="/sessions/{{.Session.ID}}/mirror-form" class="filters">
+    <input type="hidden" name="csrf" value="{{.Page.CSRF}}">
+    <label>Group
+      <input type="text" name="group" list="mirror-groups-dl" placeholder="type to search groups&hellip;" spellcheck="false" autocomplete="off" required>
+      <datalist id="mirror-groups-dl">
+        {{range .MirrorGroups}}<option value="{{.Name}}" label="{{.Destination}}"></option>{{end}}
+      </datalist>
+    </label>
+    <button class="btn">Mirror live</button>
+  </form>
+  {{end}}
+</section>
+{{end}}
+<p class="snapshot-note" role="note">Latest captured snapshot &middot; Received <span title="{{stamp $s.IngestedAt}}">{{ago $s.IngestedAt}}</span>. Not a live workspace. Edited files show the state <strong>before the final captured edit</strong>, not its result; created files show the initial write.</p>
+{{if .PrevURL}}<a href="{{.PrevURL}}">First page of turns</a>{{end}}
+{{if not .Page.Continuous}}{{if .NextURL}}<a href="{{.NextURL}}">Next 25 turns</a>{{end}}{{end}}
+</details>
+<div class="session-layout{{if not (or .Artifacts .Links .Inspector)}} session-layout-solo{{end}}{{if .Inspector}} inspecting{{end}}">
+<section class="conversation" aria-label="Conversation">
+<div class="tbar">
+  <span class="tbar-count">Conversation</span>
+  {{if not .Page.Continuous}}<a href="{{readerURL .AllURL}}">Scrollable conversation</a>{{end}}
+</div>
+
+{{/* The head banner: where the capture begins, when that is not where the
+     session did. truncated_window and start_lost name the import window and
+     the CTA that walks the file again from the laptop; capture_loss names
+     the device condition, because a session whose machine dropped events
+     around it must never read as one in which nothing happened. */}}
+{{with .Head}}
+  {{if eq .Kind "capture_loss"}}
+  <p class="capture-notice" role="note">This session's machine reported dropping {{if .Drops}}{{num .Drops}} events{{else}}events{{end}} around it (health condition <code>drops_recorded</code> or <code>capture_blocked</code>), so parts of the conversation may be missing. Runbook: <code>examples/deploy-gcp/README.md#runbook-drops</code>.</p>
+  {{else}}
+  <p class="capture-notice" role="note">Capture begins here; earlier activity not imported (window started <span title="{{stamp .WindowStart}}">{{stamp .WindowStart}}</span>). Import it from the laptop that ran the session: <code>{{.Command}}</code></p>
+  {{end}}
+{{end}}
+
+<div class="transcript">
+  {{range .Turns}}{{template "turn" .}}{{end}}
+  {{if not .Turns}}<p class="empty">Nothing to show in this window.</p>{{end}}
+  {{if .EventsCapped}}<p class="transcript-capped" role="note">This page holds more than the reader loads at once, so the later turns on it are shown incomplete. Open a turn's events from its links to see the rest.</p>{{end}}
+</div>
+
+<div class="transcript-next" data-next="{{.NextURL}}"{{if not .Page.Continuous}} hidden{{end}}>
+  {{if .Page.Continuous}}{{if .NextURL}}<span role="status">More of the conversation loads as you scroll.</span><button class="btn transcript-retry" type="button" hidden>Retry loading</button><noscript><a href="{{.NextURL}}">Next 25 turns</a></noscript>{{else}}<span>End of captured conversation</span>{{end}}{{end}}
+</div>
+</section>
+{{if or .Artifacts .Links .Inspector}}<aside class="session-inspector" aria-labelledby="inspector-h">
+<h2 id="inspector-h">Files &amp; links</h2>
+<p class="inspector-note">Select a file to inspect its captured versions here.</p>
+{{if .Inspector}}
+{{$i := .Inspector}}
+<section class="file-preview" aria-label="Captured file preview">
+<h3>{{$i.Artifact.Name}}</h3>
+<p class="artifact-path">{{$i.Artifact.Path}}</p>
+<p class="inspector-note">Edited-file snapshots are taken before the edit. The final edit result is not captured.</p>
+<nav class="preview-versions" aria-label="Captured versions">
+{{range $n, $v := $i.Versions}}<a href="{{$.FileURL $i.Artifact.ID $v.EventID}}"{{if $i.IsSelected $v}} aria-current="true" class="on"{{end}}>v{{sub (len $i.Versions) $n}}</a>{{end}}
+</nav>
+<p class="inspector-note">{{stamp $i.Selected.OccurredAt}} &middot; {{bytes $i.Selected.Bytes}}</p>
+{{if $.InspectorError}}<p role="status">{{$.InspectorError}}</p>{{else if $i.Versions}}<pre class="preview-content">{{$i.Content}}</pre>{{else}}<p>No versions captured.</p>{{end}}
+{{if $i.Truncated}}<p role="note">Showing the first 512 KB; the remaining captured content is not rendered.</p>{{end}}
+<p class="preview-actions"><a href="/artifacts/{{$i.Artifact.ID}}">Full file history</a><a href="{{$.FileURL 0 ""}}">Close preview</a></p>
+</section>
+{{end}}
+{{/* Artifacts and links are what the session produced rather than what it said.
+     Each panel renders only when it has rows: only live hook capture records
+     file diffs, so most historical sessions have none, and an empty box on every
+     one of them would read as a broken feature rather than an absent one. */}}
+{{if .Artifacts}}
+<section class="panel" aria-labelledby="artifacts-h">
+  <h2 id="artifacts-h" class="panel-h">Files changed <span class="count">{{len .Artifacts}}</span></h2>
+  <ul class="artifacts">
+    {{range .Artifacts}}
+    <li>
+      <a href="{{$.FileURL .ID ""}}">
+        <span class="artifact-name">{{.Name}}</span>
+        <span class="artifact-path">{{.Path}}</span>
+      </a>
+      <a class="artifact-history" href="/artifacts/{{.ID}}">History</a>
+      <span class="artifact-meta">
+        {{if .Created}}<span class="tag">created</span>{{end}}
+        <span title="{{.LatestSHA}}">{{num .VersionCount}} version{{if ne .VersionCount 1}}s{{end}}</span>
+        <span class="dot">&middot;</span>
+        <span>{{bytes .LatestBytes}}</span>
+        <span class="dot">&middot;</span>
+        <span title="{{stamp .LastSeen}}">{{ago .LastSeen}}</span>
+      </span>
+    </li>
+    {{end}}
+  </ul>
+</section>
+{{end}}
+
+{{if .Links}}
+<section class="panel" aria-labelledby="links-h">
+  <h2 id="links-h" class="panel-h">Links <span class="count">{{len .Links}}</span></h2>
+  <ul class="links">
+    {{range .Links}}
+    <li>
+      <span class="link-kind link-{{.Kind}}">{{.Kind}}</span>
+      {{/* rel=noopener because these are URLs a transcript mentioned, which is
+           to say URLs this system did not choose. */}}
+      <a href="{{.URL}}" rel="noopener noreferrer" target="_blank">{{.Label}}</a>
+      {{if gt .Occurrences 1}}<span class="link-n">&times;{{.Occurrences}}</span>{{end}}
+    </li>
+    {{end}}
+  </ul>
+</section>
+{{end}}
+
+{{if not .Artifacts}}<p class="inspector-empty">No file snapshots captured.</p>{{end}}
+{{if not .Links}}<p class="inspector-empty">No links captured.</p>{{end}}
+</aside>{{end}}
+</div>
+{{end}}

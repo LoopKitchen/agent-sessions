@@ -1,0 +1,53 @@
+{
+  "displayName": "loop-sessions: the server scrubbed 10 or more credentials the agents missed in an hour",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "fleet",
+    "asset": "15-server-catch"
+  },
+  "conditions": [
+    {
+      "displayName": "server-side scrub catches above 9 in an hour",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/server_catch\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "3600s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 9,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "Ten or more times in an hour the server's scrub pass removed a credential a laptop's did not. Every client scrubs before upload with the same pattern set the server has; a catch on the server means a laptop is running a build whose patterns are behind, or a new credential shape the client set lacks.\n\n`gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"ingest scrubbed a credential the agent missed\"' --freshness=1h --format='value(jsonPayload.email,jsonPayload.device_id,jsonPayload.kinds,jsonPayload.event_type)'`. If the devices are on an old `agent_version` (their rows on /admin/fleet), it is version lag: `loop-sessions daemon --upgrade-now` on the machine. If they are on the published build, the kind is new to the client set: add the pattern to internal/scrub and publish a release (README 7b).\n\nRunbook: examples/deploy-gcp/README.md#runbook-upgrade",
+    "links": [
+      {
+        "displayName": "Runbook: upgrade",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-upgrade"
+      },
+      {
+        "displayName": "/admin/fleet",
+        "url": "__PUBLIC_URL__/admin/fleet"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_FLEET__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

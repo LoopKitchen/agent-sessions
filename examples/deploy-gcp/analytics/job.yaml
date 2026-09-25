@@ -1,0 +1,108 @@
+# Cloud Run job for the hourly analytics export.
+#
+# Applied with `gcloud run jobs replace` by provision.sh, so this file is the
+# whole desired state of the job. Same image as the service (cloudrun.yaml),
+# because the export is a subcommand of the same binary: a deploy that
+# builds a new image ships both, and provision.sh is re-run with the new
+# --tag to move the job onto it.
+#
+#   __PROJECT__   GCP project id
+#   __REGION__    the region: the bucket, the dataset and the instance are
+#                 all there, and a load job can only read a bucket in the
+#                 dataset's location
+#   __INSTANCE__  Cloud SQL instance name
+#   __TAG__       image tag, the git sha the service runs
+#   __BUCKET__       the analytics bucket
+#   __RAW_DATASET__  the raw BigQuery dataset the job loads into
+#                    (loop_sessions_raw); analysts query the views in
+#                    loop_sessions, never this one (bigquery/views.sql)
+#
+# The two numbers that matter are on the task template below. timeoutSeconds
+# 1800: a run is bounded (server/export, Options) to finish in well under
+# thirty minutes, and its own budget is 28 minutes (export.RunBudget), so the
+# run ends with an "export run" line of its own before the platform would
+# kill it. maxRetries 0: a failed run has advanced no watermark, so the
+# hourly schedule is the retry, and a platform retry a minute later would
+# only race the next scheduled run for the same partitions.
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: loop-sessions-export
+  labels:
+    cloud.googleapis.com/location: __REGION__
+    app: loop-sessions
+spec:
+  template:
+    metadata:
+      annotations:
+        # The Cloud SQL connector mounts the instance's unix socket into the
+        # task, exactly as it does for the service; no private IP, no VPC
+        # connector.
+        run.googleapis.com/cloudsql-instances: __PROJECT__:__REGION__:__INSTANCE__
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      # One task per execution: the run is a sequence over one watermark
+      # and two tasks would race for it.
+      taskCount: 1
+      parallelism: 1
+      template:
+        spec:
+          maxRetries: 0
+          timeoutSeconds: 1800
+          # Its own identity, not the service's: it holds bucket and dataset
+          # write access the service has no reason to carry (provision.sh
+          # binds exactly what it needs).
+          serviceAccountName: loop-sessions-export@__PROJECT__.iam.gserviceaccount.com
+          containers:
+            - name: export
+              image: __REGION__-docker.pkg.dev/__PROJECT__/loop-sessions/server:__TAG__
+              # The image's entrypoint is /server; "export" is the
+              # subcommand server/cmd/loop-sessions-server dispatches to
+              # server/export.
+              command: ["/server"]
+              args: ["export"]
+              resources:
+                limits:
+                  cpu: "1"
+                  # The run streams every partition (COPY -> gzip -> upload)
+                  # and holds none in memory; the headroom is for the bundle
+                  # capper, which parses one event line at a time, and the
+                  # largest single event on file is a compaction record of a
+                  # few hundred KB.
+                  memory: 1Gi
+              env:
+                # The database block is the service's (cloudrun.yaml): same
+                # names, same socket, same secret.
+                - name: DATABASE_HOST
+                  value: /cloudsql/__PROJECT__:__REGION__:__INSTANCE__
+                - name: DATABASE_NAME
+                  value: loop_sessions
+                - name: DATABASE_USER
+                  value: loop_sessions
+                - name: DATABASE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: loop-sessions-db-password
+                      key: latest
+                # Where the export goes. The location is the dataset's, and
+                # the bucket must be in it. The dataset is the raw
+                # one: the job never writes to the governed loop_sessions
+                # dataset, which holds only views.
+                - name: EXPORT_PROJECT
+                  value: __PROJECT__
+                - name: EXPORT_BUCKET
+                  value: __BUCKET__
+                - name: EXPORT_DATASET
+                  value: __RAW_DATASET__
+                - name: EXPORT_LOCATION
+                  value: __REGION__
+                # The per-run caps (server/export: DefaultMaxSessions,
+                # DefaultMaxSessionDays, DefaultMaxEventDays, overridable as
+                # EXPORT_MAX_SESSIONS, EXPORT_MAX_SESSION_DAYS and
+                # EXPORT_MAX_EVENT_DAYS) are deliberately not set here: the
+                # defaults are the documented ones, and a catch-up that
+                # needs more runs is a catch-up, not a configuration
+                # problem. EXPORT_ACCESS_TOKEN is never set: the job takes
+                # its identity from the metadata server.
+                - name: LOG_LEVEL
+                  value: info

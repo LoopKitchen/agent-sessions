@@ -1,0 +1,47 @@
+{
+  "displayName": "loop-sessions: no health reports for 20 min",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "CRITICAL",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "infra",
+    "asset": "06b-health-heartbeat-absent"
+  },
+  "conditions": [
+    {
+      "displayName": "accepted /v1/health posts absent for 20 min",
+      "conditionAbsent": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/health_posts\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "duration": "1200s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "No laptop has had a health report accepted for twenty minutes. Every enrolled agent posts one every five minutes (about 336 an hour across the fleet), so zero for twenty minutes is not a quiet fleet: the server, the TLS path in front of it, or the whole fleet's network is down.\n\nCheck the server first: `curl -i __PUBLIC_URL__/readyz` (expect `ready`) and the readiness alert. Then `gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"ingest request failed\" AND jsonPayload.op=\"put health report\"' --limit=10 --freshness=1h`: a report the store refused is answered 5xx on purpose so the fleet page never shows a machine as reporting when it is not. If the server is healthy and the log is empty, the requests are not arriving: check the Cloud Run request log for /v1/health at all.\n\nRunbook: examples/deploy-gcp/README.md#runbook-ingest-5xx",
+    "links": [
+      {
+        "displayName": "Runbook: ingest 5xx",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-ingest-5xx"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

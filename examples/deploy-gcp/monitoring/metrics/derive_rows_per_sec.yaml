@@ -1,0 +1,22 @@
+# The derive runner writes one "derive step" line per finished step with
+# rows_per_sec, the rate the step moved at. Sampled for the event_keys step
+# only: it is the step that walks the whole events table on a versioned
+# rebuild, the one the rehearsal measured (about 1,500 rows/s), and the one
+# whose pace decides whether the rebuild finishes inside its window. A rate
+# far below the rehearsed one is a pacer set too low or a database under load.
+name: loop_sessions/derive_rows_per_sec
+description: Rows per second of the derive runner's event_keys step, per finished step (field rows_per_sec of the server line "derive step")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="derive step"
+  AND jsonPayload.step="event_keys"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: DISTRIBUTION
+  unit: "1/s"
+valueExtractor: EXTRACT(jsonPayload.rows_per_sec)
+bucketOptions:
+  explicitBuckets:
+    bounds: [0, 100, 250, 500, 1000, 1500, 2500, 5000, 10000]

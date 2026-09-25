@@ -1,0 +1,24 @@
+# The fleet evaluator (server/fleet) writes one "fleet summary" line per five-
+# minute tick, from whichever instance holds the lock, so each field is a
+# gauge sampled once per tick. A counter metric counts lines, not field
+# values, which is why the evaluator's numbers go through a DISTRIBUTION with
+# a valueExtractor: ALIGN_PERCENTILE_99 over one alignment period reads the
+# single sample back as the value. silent is the number of enrolled machines
+# that reported once and have not for a day; a machine that never reported is
+# counted separately (never_reported) because it is a failed install somebody
+# knows about.
+name: loop_sessions/fleet_silent
+description: Machines silent for over a day, sampled per evaluator tick (field silent of the server line "fleet summary")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="fleet summary"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: DISTRIBUTION
+  unit: "1"
+valueExtractor: EXTRACT(jsonPayload.silent)
+bucketOptions:
+  explicitBuckets:
+    bounds: [0, 1, 2, 3, 5, 8, 13, 21, 34, 55]

@@ -1,0 +1,53 @@
+{
+  "displayName": "loop-sessions: a machine holds parked items",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "ERROR",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "fleet",
+    "asset": "04c-fleet-parked"
+  },
+  "conditions": [
+    {
+      "displayName": "machines with parked items at or above 1 for 30 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/fleet_parked_devices\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "1800s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "At least one laptop holds items the server answered for neither way, eight deliveries in a row. The 788dcb3 client parks them rather than quarantining them, and redrives them when its binary changes and once a day; they are not lost; they are not stored either, and eight undecided verdicts for the same item is a server bug (see the undecided alert, 03).\n\nCheck the server side first: `gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"store returned no verdict\"' --freshness=1d --limit=20`. Once that is fixed and deployed, the person runs `loop-sessions doctor --redrive` to pull the parked items forward now instead of at the daily redrive. Who: the parked row on /admin/fleet, or `jsonPayload.message=\"fleet condition\"` lines.\n\nRunbook: examples/deploy-gcp/README.md#runbook-parked",
+    "links": [
+      {
+        "displayName": "Runbook: parked",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-parked"
+      },
+      {
+        "displayName": "/admin/fleet",
+        "url": "__PUBLIC_URL__/admin/fleet"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_FLEET__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "displayName": "loop-sessions: answers missing from more than 10% of captured turns (6 h)",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "ERROR",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "fleet",
+    "asset": "08-fleet-missing-answer"
+  },
+  "conditions": [
+    {
+      "displayName": "missing-answer rate per client build above 0.10 for 6 h",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/fleet_missing_answer_rate\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX",
+            "groupByFields": [
+              "metric.labels.agent_version"
+            ]
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.1,
+        "duration": "21600s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "More than 10% of the hook-captured human turns that could have answered on one client build got no answer in six hours. The metric is split by `agent_version` and `entrypoint`, so the incident names the cohort; a regression on the published build is the failure this exists to catch.\n\n```\ngcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"fleet missing_answer\"' --freshness=6h --format='value(jsonPayload.day,jsonPayload.agent_version,jsonPayload.entrypoint,jsonPayload.turns,jsonPayload.answered,jsonPayload.rate)'\n```\n\n**Cohorts under twenty turns do not reach this alert.** The rate is a share of one day's cohort, and overnight in the fleet's timezone a build can have two or three turns, where one unanswered reads as 33% or more. The floor lives in the metric's filter (`jsonPayload.turns>=20`), not in the server, so the fleet page and the log still carry every cohort and only the alert is spared them. A build that has stopped capturing altogether crosses twenty turns within a working morning; until it does it shows on the page and in `fleet silent` and `fleet version_lag`, which need no denominator. Read `turns` in the incident anyway: at twenty-five it is a hint, at two hundred it is a measurement.\n\n**Why 10% and not 5%.** The fleet has a chronic residual that is not a regression, and it differs by entrypoint. A build that has actually stopped capturing reads 100%. A 5% threshold therefore fired on ordinary desktop variation rather than on a regression, which is what it was enabled to catch. 10% sits above the residual band and an order of magnitude below the failure signature. It does NOT catch a regression that loses between 5 and 10 percent; the desktop residual itself is the open work that would let this be tightened again.\n\nThen: if the build is old, it is version lag (the upgrade runbook). If it is the published build, open a session from that cohort in the reader and read the answer slot. \"Answer not captured\" names a client fix; the note about background work holding the turn open names the harness, and the transcript walk supplies those answers later.\n\nWhat this policy took to become trustworthy, for whoever changes it next: it shipped disabled because older clients captured the human turn without the answer. The fleet moved past those clients and the rate stayed high anyway, because the server counted turns that never had an answer to lose. The cohort now holds the turns that could have answered: not one still in progress, not one the person interrupted, and not one whose only captured event is its prompt IF its session answered something else. That last exclusion is conditional on purpose, because the same shape is what a client produces when its hooks stop firing, and excusing it unconditionally would let such a build emit no cohort row at all, where a threshold cannot fire.\n\nRunbook: examples/deploy-gcp/README.md#runbook-missing-answers",
+    "links": [
+      {
+        "displayName": "Runbook: missing answers",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-missing-answers"
+      },
+      {
+        "displayName": "/admin/fleet",
+        "url": "__PUBLIC_URL__/admin/fleet"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_FLEET__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

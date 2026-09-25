@@ -1,0 +1,284 @@
+# Cloud Run service for loop-sessions.
+#
+# Applied with `gcloud run services replace`, so this file is the whole desired
+# state rather than a diff. Substitute the eight placeholders before applying;
+# README.md has the sed one-liner.
+#
+#   __PROJECT__     GCP project id, which is also the Firebase project id
+#   __REGION__      e.g. asia-south1
+#   __INSTANCE__    Cloud SQL instance name
+#   __TAG__         image tag, normally the git sha
+#   __DOMAINS__     comma-separated company email domains, e.g. example.com
+#   __PUBLIC_URL__  the absolute base this service is reached at
+#   __RELEASE_BUCKET__    the bucket the installer and agent binaries are served from
+#   __FIREBASE_API_KEY__  the Firebase web API key (public by design; see below)
+#
+# One service serves both the dashboard and the ingest API. Splitting them
+# would double the min-instance bill and give the ingest path its own set of
+# deploy mistakes to make, for no isolation that matters at this size.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: loop-sessions
+  labels:
+    cloud.googleapis.com/location: __REGION__
+  annotations:
+    # Laptops on home networks and coffee shop wifi POST to /v1/events, so the
+    # service has to accept traffic from the internet. Every request is still
+    # authenticated in-process: a device bearer token for the client, a session
+    # cookie minted from a verified Firebase ID token for the dashboard. See
+    # README.md for why IAP is not used in front of this service.
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        # One warm instance, always. A cold start on the ingest endpoint means
+        # the client's upload times out, the item goes back to the spool, and
+        # the whole fleet retries against an instance that is still starting.
+        # The floor is cheaper than the retry storm it prevents.
+        autoscaling.knative.dev/minScale: "1"
+        # Fifty laptops and a handful of dashboard users do not need more than
+        # this, and a ceiling is what stops a runaway retry loop from turning
+        # into a runaway bill.
+        autoscaling.knative.dev/maxScale: "10"
+
+        run.googleapis.com/cloudsql-instances: __PROJECT__:__REGION__:__INSTANCE__
+        run.googleapis.com/execution-environment: gen2
+
+        # CPU stays allocated between requests. With CPU throttled, the warm
+        # instance min-scale is paying for still handles its first request
+        # slowly, which defeats the reason min-scale is set at all. It also
+        # lets connection pool maintenance and any deferred write run when
+        # nothing is in flight.
+        run.googleapis.com/cpu-throttling: "false"
+        run.googleapis.com/startup-cpu-boost: "true"
+    spec:
+      # Ingest is IO-bound on Postgres and each request holds a pooled
+      # connection. The pool is 36 per instance (server/app/config.go,
+      # poolMaxConns), so at full concurrency four requests queue inside pgx
+      # rather than in Cloud Run. That is deliberate: the pool is sized to the
+      # instance's connection budget (10 instances x 36 + 2 for the export job
+      # + 5 for an operator = 367 of 397 usable), and a pool above the
+      # concurrency would put the service over that budget at maxScale. At
+      # the measured p99 concurrency of 3 the queue never forms.
+      containerConcurrency: 40
+      # Long enough for a large event batch, short enough that a wedged request
+      # is recycled rather than held open. Transcript pages are paginated and
+      # never come close to this.
+      timeoutSeconds: 120
+      serviceAccountName: loop-sessions-run@__PROJECT__.iam.gserviceaccount.com
+      containers:
+        - name: server
+          image: __REGION__-docker.pkg.dev/__PROJECT__/loop-sessions/server:__TAG__
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          env:
+            # PORT is deliberately absent. Cloud Run injects it from
+            # containerPort above and rejects the whole service definition if it
+            # is also set here, naming it a reserved environment variable. The
+            # server defaults to 8080 when it is unset in any case.
+            #
+            # Unix socket rather than TCP: the Cloud SQL connector mounts it
+            # into the container, so no private IP, no VPC connector and no
+            # authorised network list to keep correct.
+            - name: DATABASE_HOST
+              value: /cloudsql/__PROJECT__:__REGION__:__INSTANCE__
+            - name: DATABASE_NAME
+              value: loop_sessions
+            - name: DATABASE_USER
+              value: loop_sessions
+            # Timestamps are rendered server-side because the dashboard ships
+            # no JavaScript and therefore cannot read the viewer's clock. One
+            # company timezone is the honest choice, so set it to yours: UTC
+            # makes every "yesterday afternoon" wrong for everyone.
+            - name: TZ
+              value: Etc/UTC
+            # The absolute base this service is reached at. Its scheme decides
+            # whether session cookies carry Secure, so it is configured rather
+            # than derived from the request: an X-Forwarded-Proto of "http"
+            # would otherwise talk this server out of Secure cookies, and a Host
+            # header would decide what any absolute link it prints points at.
+            #
+            # It is a chicken and egg with the first deploy, because a Cloud Run
+            # URL does not exist until the service does. Deploy once with the
+            # predicted value, read the real URL back, and correct it if they
+            # differ. The server refuses to start without it, so a wrong value
+            # fails loudly at boot rather than quietly at the first sign-in.
+            - name: PUBLIC_URL
+              value: __PUBLIC_URL__
+            # Checked against the verified email address on every request, not
+            # only at sign-up, so removing a domain takes effect immediately.
+            #
+            # A Firebase ID token carries no `hd` claim, so this list and the
+            # principals table are the whole of the domain control rather than a
+            # second opinion behind a Google assertion. Getting it wrong is
+            # therefore worse than it used to be, in both directions.
+            - name: ALLOWED_DOMAINS
+              value: __DOMAINS__
+            # The first administrators: comma-separated addresses, each in
+            # ALLOWED_DOMAINS, given an admin row at boot when they have none.
+            # Everyone else is added from the admin page afterwards.
+            - name: ADMIN_EMAILS
+              value: __ADMIN_EMAILS__
+            # Optional: comma-separated a.example:b.example pairs of
+            # ALLOWED_DOMAINS entries that one Workspace serves as the same
+            # accounts. Leave it out when every address has one spelling.
+            # - name: DOMAIN_ALIASES
+            #   value: a.example:b.example
+            # The Firebase project this service authenticates against, and the
+            # same string as __PROJECT__ above. It fixes both halves of token
+            # verification at once: `aud` must equal it and `iss` must be
+            # https://securetoken.google.com/<it>.
+            - name: FIREBASE_PROJECT_ID
+              value: __PROJECT__
+            # The Firebase web API key, and deliberately NOT a secretKeyRef.
+            #
+            # This value is public by design. It is served in this service's own
+            # sign-in page, and it
+            # authorises nothing on its own — it names the project so the SDK
+            # knows which one to talk to. Binding it as a secret would tell the
+            # next operator it is a credential, and they would treat reading it
+            # off the page as an incident and a rotation as an emergency. The
+            # controls that do matter are Firebase's authorized-domains list for
+            # this project, the ID token verification in the server, and the
+            # principals roster.
+            # The private bucket holding the installer and the agent binaries.
+            # They are proxied through this service by the runtime service
+            # account rather than served from a public bucket: a world-readable
+            # bucket is a standing surface that outlives whatever created it,
+            # while a route here is logged and removable by a deploy.
+            - name: RELEASE_BUCKET
+              value: __RELEASE_BUCKET__
+            - name: FIREBASE_API_KEY
+              value: __FIREBASE_API_KEY__
+            # The two retention windows: how long a transcript's raw body is
+            # kept, and how long the session is kept at all. These are the only
+            # variables in this file that destroy anything.
+            #
+            # These two lines are what switch retention ON. The server's own
+            # default is zero for both, which means "keep everything forever" —
+            # the state the service was already in, and the one it returns to if
+            # these variables are deleted. Nothing in the binary deletes anything
+            # until this file says so, which is deliberate: the number that
+            # decides how long a colleague's transcript survives belongs in the
+            # file a human edits to deploy, not in a constant nobody can find
+            # without a rebuild.
+            #
+            # The arithmetic they come from, measured on one deployment:
+            # one laptop for seven days is 407 MB and 71,687 events,
+            # so 58 MB per person per day, of which 65% is the TOAST behind
+            # events.body. At fifty people that is about 1.9 GB a day of body and
+            # 1.0 GB a day of everything else. Ninety days of body plus a year of
+            # the rest settles at roughly 535 GB and stops growing; today it
+            # grows at a terabyte a year and never stops.
+            #
+            # 0 in either variable means "keep forever" and is refused silence:
+            # the server logs a warning at boot naming the unbounded growth. A
+            # window below seven days is refused outright at boot, because the
+            # mistake that reaches this file is a typo and there is no undo — the
+            # laptops drop their spool the moment an upload is acknowledged, so
+            # this database is the only copy.
+            #
+            # Verified before shipping: the sweep was run to completion against a
+            # Postgres 17 loaded with this schema, not against this database. The
+            # audit trail survives its sessions, the search rows and shares go
+            # with theirs, an interrupted pass resumes, and a second pass expires
+            # nothing a first pass already did. Nothing has been run here.
+            # Zero (keep forever) is this example's default; choose your own.
+            #
+            # The sweeper is fully built, tested against a real Postgres, and
+            # wired to a real caller. Turning it on is editing these two numbers
+            # and deploying; no code changes. The code default is 0 as well, so
+            # the binary and this file agree.
+            - name: RETENTION_BODY_DAYS
+              value: "0"
+            - name: RETENTION_SESSION_DAYS
+              value: "0"
+            # FIREBASE_AUTH_DOMAIN is deliberately absent. The server defaults it
+            # to <project>.firebaseapp.com, which is what the Firebase console
+            # provisions. Set it only if
+            # this project is ever moved to a custom auth domain, and remember
+            # that the value reaches the sign-in page's frame-src.
+            #
+            # The secrets follow. The first two are this service's own and
+            # neither is an authentication credential.
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: loop-sessions-db-password
+                  key: latest
+            # Signs dashboard cookies and the admin form tokens. Shared across
+            # instances on purpose: a per-instance key would reject a form
+            # posted to a different instance than the one that rendered it.
+            - name: SESSION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: loop-sessions-session-key
+                  key: latest
+            # The Slack bot token: the only secret that authorises this service
+            # to act somewhere other than its own database.
+            #
+            # Binding it is what switches the Slack mirror on as a capability —
+            # not as a behaviour. It mirrors nobody until somebody sets their own
+            # preference through PUT /v1/slack/preferences, because these are
+            # messages about a person's work posted into a shared workspace and a
+            # default that broadcasts is a privacy incident that ships as a
+            # feature. There is no company-wide enable, deliberately.
+            #
+            # Removing this binding is the kill switch. Without it the server
+            # builds no poster and does not serve the preference route at all, so
+            # nothing can be posted and nothing new can be asked for; the rows in
+            # slack_prefs are left untouched and take effect again if it is
+            # restored.
+            #
+            # Granted scopes, confirmed against auth.test: chat:write, im:write,
+            # users:read, users:read.email, channels:join, channels:history.
+            - name: SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: loop-sessions-slack-bot-token
+                  key: latest
+            # The Slack app's signing secret, which mounts the interactivity
+            # endpoint and puts Stop buttons on live-thread roots. Removing it
+            # is the off switch: the route disappears and roots go buttonless.
+            # The Slack-side half lives at api.slack.com: Interactivity URL =
+            # {PUBLIC_URL}/v1/slack/interactive.
+            - name: LOOP_SESSIONS_SLACK_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: loop-sessions-slack-signing-secret
+                  key: latest
+          # A TCP probe rather than an HTTP one, because it asserts exactly what
+          # startup means here: the listener is up. An HTTP probe would couple
+          # deployability to one handler's path staying where it is.
+          #
+          # failureThreshold x periodSeconds is the boot budget, and the boot
+          # runs migrations before it listens. 60 x 2 s = 120 s covers the
+          # migration runner's ordinary worst case: a 10 s database ping, up
+          # to 60 s waiting for another instance's run to finish
+          # (store.Migrate, lockWait), then, per file, up to 25 s retrying a
+          # lock it lost to live ingest (lockTimeout 5 s, four retries) and
+          # up to 60 s per statement of the file's own SQL (statementTimeout).
+          # Those last two are per file, so a boot that ships several files
+          # which all lose a lock race can still be killed by this probe. That
+          # is recoverable rather than a crash loop: each file commits on its
+          # own, and the next boot resumes at the first file the ledger lacks.
+          # The previous 30 s was shorter than the retry budget of a single
+          # file, which turned "ingest held the table for six seconds" into a
+          # container killed mid-migration on every boot.
+          startupProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 2
+            failureThreshold: 60
+            timeoutSeconds: 2
+  traffic:
+    - percent: 100
+      latestRevision: true

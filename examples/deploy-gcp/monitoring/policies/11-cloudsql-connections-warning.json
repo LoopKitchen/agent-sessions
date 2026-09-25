@@ -1,0 +1,49 @@
+{
+  "displayName": "loop-sessions: Cloud SQL backends above 300",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "infra",
+    "asset": "11-cloudsql-connections-warning"
+  },
+  "conditions": [
+    {
+      "displayName": "postgresql backends above 300 for 5 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"cloudsql.googleapis.com/database/postgresql/num_backends\" AND resource.type=\"cloudsql_database\" AND resource.labels.database_id=\"__PROJECT__:loop-sessions\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_MEAN",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 300,
+        "duration": "300s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "More than 300 backends on an instance whose budget is 367 of 397 usable (max_connections 400, 3 reserved; 10 instances x 36 pool + 2 export job + 5 admin). The baseline is two or three. Something is fanning out: a retry storm from the fleet scaling the service up, or transactions that are not ending.\n\n`gcloud run services describe loop-sessions --region=<region> --format='value(status.traffic)'` and the instance-count alert for how many instances are up; `cloudsql.googleapis.com/database/postgresql/num_backends_by_state` in Metrics Explorer for `idle in transaction`, which is a leaked transaction and points at the code path holding it. Through the proxy: `SELECT state, count(*) FROM pg_stat_activity GROUP BY 1`.\n\nRunbook: examples/deploy-gcp/README.md#runbook-cloudsql",
+    "links": [
+      {
+        "displayName": "Runbook: cloudsql",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-cloudsql"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

@@ -1,0 +1,78 @@
+{{define "content"}}
+{{$a := .Artifact}}
+
+<nav class="crumbs">
+  <a href="/sessions">Sessions</a> <span>/</span>
+  <a href="{{.SessionURL}}">{{short $a.SessionID}}</a> <span>/</span>
+  <span>{{$a.Name}}</span>
+</nav>
+
+<div class="pagehead">
+  <h1>{{$a.Name}}</h1>
+  <p class="sub">
+    <span class="path">{{$a.Path}}</span>
+    <span class="dot">&middot;</span>
+    <span>{{if $a.Created}}created{{else}}edited{{end}} in this session</span>
+    <span class="dot">&middot;</span>
+    <span title="{{stamp $a.LastSeen}}">last changed {{ago $a.LastSeen}}</span>
+  </p>
+</div>
+
+<dl class="stats">
+  <div><dt>Versions</dt><dd>{{num $a.VersionCount}}</dd></div>
+  <div><dt>Latest size</dt><dd>{{bytes $a.LatestBytes}}</dd></div>
+  <div><dt>Latest checksum</dt><dd><code>{{$a.ShortSHA}}</code></dd></div>
+  <div><dt>First seen</dt><dd title="{{stamp $a.FirstSeen}}">{{day $a.FirstSeen}} {{clock $a.FirstSeen}}</dd></div>
+</dl>
+
+<p class="provenance">
+  These are full snapshots of the file taken as this session changed it &mdash; not the
+  file as it stands on disk today. Each edit records the file as it was immediately
+  before it, and a file this session created records it as written, so the newest
+  snapshot here is the state before the most recent edit. What the file became after
+  that final edit was never recorded by anything, so it is not shown. A snapshot is
+  kept only when its checksum differs from the one before it, so a write that changed
+  nothing is not listed as a change.
+</p>
+
+{{if .Versions}}
+<div class="artifact-layout">
+  <ol class="versions" aria-label="Version history">
+    {{range $i, $v := .Versions}}
+    <li class="version{{if $.IsSelected $v}} on{{end}}">
+      <a href="{{$.VersionURL $v}}">
+        <span class="version-n">v{{sub (len $.Versions) $i}}</span>
+        <span class="version-when" title="{{stamp $v.OccurredAt}}">{{day $v.OccurredAt}} {{clock $v.OccurredAt}}</span>
+        <span class="version-meta">{{bytes $v.Bytes}} <code>{{$v.ShortSHA}}</code></span>
+        {{if $v.Created}}<span class="tag">created</span>{{end}}
+      </a>
+    </li>
+    {{end}}
+  </ol>
+
+  <section class="artifact-body" aria-label="File contents">
+    <header class="artifact-body-head">
+      <span title="{{stamp .Selected.OccurredAt}}">{{day .Selected.OccurredAt}} {{clock .Selected.OccurredAt}}</span>
+      <span class="dot">&middot;</span>
+      <span>{{bytes .Selected.Bytes}}</span>
+      <span class="dot">&middot;</span>
+      <code>{{.Selected.ShortSHA}}</code>
+      <a class="version-event" href="/sessions/{{$a.SessionID}}/events/{{.Selected.EventID}}">the edit that made it</a>
+    </header>
+    {{if .Truncated}}
+    <p class="flash flash-bad" role="note">
+      Showing the first 512 KB of {{bytes .Selected.Bytes}}. The rest is stored but not rendered here.
+    </p>
+    {{end}}
+    {{if .Content}}
+    <pre class="filebody">{{.Content}}</pre>
+    {{else}}
+    <p class="empty">The contents of this version could not be read. Its checksum and size are above.</p>
+    {{end}}
+  </section>
+</div>
+{{else}}
+<p class="empty">No versions were recorded for this file.</p>
+{{end}}
+
+{{end}}

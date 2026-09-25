@@ -1,0 +1,23 @@
+# The fleet evaluator (server/fleet) writes one "fleet summary" line per five-
+# minute tick, from whichever instance holds the lock, so each field is a
+# gauge sampled once per tick. A counter metric counts lines, not field
+# values, which is why the evaluator's numbers go through a DISTRIBUTION with
+# a valueExtractor: ALIGN_PERCENTILE_99 over one alignment period reads the
+# single sample back as the value. empty_rate is the fleet's share of sessions
+# in the last day that ended before a first prompt (lifecycle-only spawns);
+# the per-machine rule that names the person is the fleet_empty_start counter.
+name: loop_sessions/fleet_empty_rate
+description: Fleet-wide share of sessions in the last day that were lifecycle-only spawns, sampled per evaluator tick (field empty_rate of the server line "fleet summary")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="fleet summary"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: DISTRIBUTION
+  unit: "1"
+valueExtractor: EXTRACT(jsonPayload.empty_rate)
+bucketOptions:
+  explicitBuckets:
+    bounds: [0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]

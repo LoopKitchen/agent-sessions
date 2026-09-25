@@ -1,0 +1,125 @@
+{
+  "displayName": "loop-sessions: a skill emitter channel has gone silent",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "fleet",
+    "asset": "18b-skill-beacon-silent"
+  },
+  "conditions": [
+    {
+      "displayName": "devin beacon rows silent above 1440 counted minutes for 30 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_silence_minutes\" AND resource.type=\"cloud_run_revision\" AND metric.labels.platform=\"devin\" AND metric.labels.origin=\"beacon\" AND metric.labels.environment!=\"canary\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 1440,
+        "duration": "1800s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "capy beacon rows silent above 1440 counted minutes for 30 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_silence_minutes\" AND resource.type=\"cloud_run_revision\" AND metric.labels.platform=\"capy\" AND metric.labels.origin=\"beacon\" AND metric.labels.environment!=\"canary\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 1440,
+        "duration": "1800s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "codex beacon rows silent above 1440 counted minutes for 30 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_silence_minutes\" AND resource.type=\"cloud_run_revision\" AND metric.labels.platform=\"codex\" AND metric.labels.origin=\"beacon\" AND metric.labels.environment!=\"canary\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 1440,
+        "duration": "1800s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "claude_code cloud hook rows silent above 10080 counted minutes for 30 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_silence_minutes\" AND resource.type=\"cloud_run_revision\" AND metric.labels.platform=\"claude_code\" AND metric.labels.origin=\"hook\" AND metric.labels.environment=\"cloud\" AND metric.labels.environment!=\"canary\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 10080,
+        "duration": "1800s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "reconciler rows silent above 2880 counted minutes for 30 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_silence_minutes\" AND resource.type=\"cloud_run_revision\" AND metric.labels.origin=\"reconciler\" AND metric.labels.environment!=\"canary\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 2880,
+        "duration": "1800s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "A channel that a live source token makes expected has gone a working day (a week for the cloud hook, two days for a reconciler) without a row. The gauge is one `skill platform summary` line per (platform, environment, origin) computed from the newest row of `skill_invocations` under that platform and environment, never per token, with Saturday 00:00 to Monday 00:00 in the mask zone (America/New_York in server/store/skills.go) not counted; a series whose token never posted reads the sentinel 100000, so a beacon that never worked alerts too. The `laptop` environment is not here (each per-person token is its own series and the token summary covers it) and neither is `canary` (a token minted to prove the gauge and post nothing), nor Vorflux, whose beacon is optional.\n\nWhich series: `gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"skill platform summary\"' --freshness=10m --format='value(jsonPayload.platform,jsonPayload.environment,jsonPayload.origin,jsonPayload.minutes_since_last_row,jsonPayload.rows_24h)'`, then the token: `last_used_minutes_ago` on the `skill token summary` line for that platform and environment. A token used recently with no rows is the emitter posting and being refused (policies 17, 17b, 17e say why); a token not used at all is the vendor secret missing or stale, the mirror no longer carrying the beacon line, `rate_limit_per_min` at 0 from an unfinished rotation, or the platform's egress. A silent reconciler is the automation stopped: re-enable it or restart the monitor. A platform that has genuinely stopped using skills is not an incident: revoke its token so the series stops being expected.\n\nRunbook: examples/deploy-gcp/README.md#runbook-source-tokens",
+    "links": [
+      {
+        "displayName": "Runbook: source tokens",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-source-tokens"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_FLEET__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

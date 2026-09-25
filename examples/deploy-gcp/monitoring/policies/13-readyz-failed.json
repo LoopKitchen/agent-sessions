@@ -1,0 +1,49 @@
+{
+  "displayName": "loop-sessions: readiness failing",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "ERROR",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "infra",
+    "asset": "13-readyz-failed"
+  },
+  "conditions": [
+    {
+      "displayName": "3 or more failed readiness checks in 5 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/readyz_failed\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 2,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "An instance answered /readyz with 503 three or more times in five minutes: it cannot reach the database. The body says nothing on purpose; the `readiness check failed` line carries the driver's error and the request trace.\n\n`gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"readiness check failed\"' --limit=10 --freshness=30m` for the error text. Then `gcloud sql instances describe loop-sessions --format='value(state,settings.activationPolicy)'` (expect RUNNABLE, ALWAYS), and `gcloud run services describe loop-sessions --region=<region> --format='value(spec.template.metadata.annotations)'` to confirm the Cloud SQL connector annotation still names the instance. A wrong DATABASE_* variable fails at boot, not here; a socket that stopped answering fails here.\n\nRunbook: examples/deploy-gcp/README.md#runbook-cloudsql",
+    "links": [
+      {
+        "displayName": "Runbook: cloudsql",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-cloudsql"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

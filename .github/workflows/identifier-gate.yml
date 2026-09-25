@@ -1,0 +1,39 @@
+# The identifier gate.
+#
+# This repository is the public cut of a tree that ran one operator's private
+# deployment, and that tree named the operator everywhere: a cloud project id
+# and number, company mail domains, a web API key, employee names and home
+# paths, chat workspace and channel ids. None of them may come back, and a
+# reviewer cannot be relied on to spot one in a long diff. So every pull
+# request and every push to main greps the whole tree and fails when anything
+# matches, printing each offending line so the fix is a one-line edit rather
+# than a search.
+#
+# The concrete list of forbidden strings is deliberately not committed: it
+# would publish exactly what it guards. It comes from the repository secret
+# IDENTIFIER_GATE_PATTERNS (an extended regex), which the script combines with
+# a generic pattern that matches the *shape* of such identifiers and never
+# echoes. Pull requests from forks do not receive the secret and run the
+# generic pattern only; a maintainer re-runs the full gate before merging.
+# See .github/scripts/identifier-gate.sh, which is the same check run locally.
+name: identifier-gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: no internal identifiers anywhere in the tree
+        env:
+          IDENTIFIER_GATE_PATTERNS: ${{ secrets.IDENTIFIER_GATE_PATTERNS }}
+        run: bash .github/scripts/identifier-gate.sh

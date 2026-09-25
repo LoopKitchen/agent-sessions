@@ -1,0 +1,28 @@
+# One per "skill invocation accepted" line whose row was written or
+# changed: a 200 on POST /v1/skill-invocations that was not a replay. The
+# soft-revoked and duplicate answers are excluded here (skill_soft_revoked
+# counts the former), so the series is what the emitters actually landed,
+# by platform, origin and which credential vouched.
+name: loop_sessions/skill_accepted
+description: Skill invocations accepted and written on POST /v1/skill-invocations (server line "skill invocation accepted" with duplicate=false)
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="skill invocation accepted"
+  AND jsonPayload.duplicate=false
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: platform
+      valueType: STRING
+    - key: origin
+      valueType: STRING
+    - key: trust
+      valueType: STRING
+labelExtractors:
+  platform: EXTRACT(jsonPayload.platform)
+  origin: EXTRACT(jsonPayload.origin)
+  trust: EXTRACT(jsonPayload.trust)

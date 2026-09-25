@@ -1,0 +1,49 @@
+{
+  "displayName": "loop-sessions: 5 or more ingest 5xx in 5 min",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "ERROR",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "infra",
+    "asset": "01b-ingest-5xx-absolute"
+  },
+  "conditions": [
+    {
+      "displayName": "5xx on /v1/events or /v1/health, 5 or more in 5 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/ingest_5xx\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 4,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "Five or more 5xx answers on the client routes inside five minutes. The low-traffic guard beside the ratio alert: at 0.5 requests a second a handful of failures is invisible as a ratio and still a laptop that cannot deliver.\n\nSame procedure as the ratio alert: read the request log for the status and the route, then `jsonPayload.message=\"ingest request failed\"` for the cause by `jsonPayload.op`. The `agent_version` label on this metric says whether one build is producing them.\n\nRunbook: examples/deploy-gcp/README.md#runbook-ingest-5xx",
+    "links": [
+      {
+        "displayName": "Runbook: ingest 5xx",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-ingest-5xx"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

@@ -1,0 +1,125 @@
+{{define "content"}}
+<div class="pagehead">
+  <h1>Notifications</h1>
+  <p class="sub">Where your sessions go in Slack. A group is a named destination; attach one to a session and it narrates there as a live thread. Attaching is the consent &mdash; nothing posts without your action on your own session.</p>
+</div>
+
+{{if .Page.Notice}}<p class="flash">{{.Page.Notice}}</p>{{end}}
+{{if .Page.Error}}<p class="flash flash-warn">{{.Page.Error}}</p>{{end}}
+
+<section class="panel">
+  <h2 class="panel-h">Live mirroring</h2>
+  <form method="post" action="/settings/notifications/controls" class="row-line">
+    <input type="hidden" name="csrf" value="{{.Page.CSRF}}">
+    {{if .Settings.LiveDisabled}}
+    <span class="tag tag-warn">paused</span>
+    <span>All live mirroring of your sessions is paused. Running threads closed; nothing new opens.</span>
+    <button class="btn" name="live" value="resume">Resume live mirroring</button>
+    {{else}}
+    <span class="tag">on</span>
+    <span>Sessions you attach to a group narrate there live. One click pauses everything.</span>
+    <button class="btn" name="live" value="pause">Pause all live mirroring</button>
+    {{end}}
+  </form>
+  <p class="panel-note">The standing digest (a summary when a session finishes) is separate: mode <code>{{.Settings.DigestMode}}</code>{{if .Settings.DigestChannel}} to <code>{{.Settings.DigestChannel}}</code>{{end}}, set via <code>PUT /v1/slack/preferences</code>.</p>
+</section>
+
+<section class="panel">
+  <h2 class="panel-h">Groups</h2>
+  {{if .Settings.Groups}}
+  <div class="scroll"><table class="list">
+    <thead><tr><th>Name</th><th>Destination</th><th>Visibility</th><th>Owner</th><th></th></tr></thead>
+    <tbody>
+    {{range .Settings.Groups}}
+      <tr>
+        <td>{{.Name}}{{if .Disabled}} <span class="tag tag-warn">disabled</span>{{end}}</td>
+        <td>{{$d := .Destination}}{{with index $.Settings.DestLabels $d}}{{.}} <code>{{$d}}</code>{{else}}<code>{{$d}}</code>{{end}}</td>
+        <td>{{.Visibility}}</td>
+        <td>{{.OwnerEmail}}</td>
+        <td>
+          {{if eq .OwnerEmail $.Page.Viewer.Email}}
+          <span class="row-line">
+          <form method="post" action="/settings/notifications/groups/{{.ID}}">
+            <input type="hidden" name="csrf" value="{{$.Page.CSRF}}">
+            <input type="hidden" name="name" value="{{.Name}}">
+            <input type="hidden" name="visibility" value="{{.Visibility}}">
+            <input type="hidden" name="destination" value="{{.Destination}}">
+            {{if .Disabled}}<button class="btn" name="disabled" value="off">Enable</button>
+            {{else}}<button class="btn" name="disabled" value="on">Disable</button>{{end}}
+          </form>
+          <form method="post" action="/settings/notifications/groups/{{.ID}}">
+            <input type="hidden" name="csrf" value="{{$.Page.CSRF}}">
+            <input type="hidden" name="name" value="{{.Name}}">
+            <input type="hidden" name="destination" value="{{.Destination}}">
+            {{if .Disabled}}<input type="hidden" name="disabled" value="on">{{end}}
+            {{if eq .Visibility "private"}}<button class="btn" name="visibility" value="org">Share org-wide</button>
+            {{else}}<button class="btn" name="visibility" value="private">Make private</button>{{end}}
+          </form>
+          <form method="post" action="/settings/notifications/groups/{{.ID}}/delete">
+            <input type="hidden" name="csrf" value="{{$.Page.CSRF}}">
+            <button class="btn btn-danger">Delete</button>
+          </form>
+          </span>
+          {{end}}
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table></div>
+  {{else}}
+  <div class="empty"><p><b>No groups yet.</b> Create the first one below.</p></div>
+  {{end}}
+</section>
+
+<section class="panel">
+  <h2 class="panel-h">Create a group</h2>
+  <form method="post" action="/settings/notifications/groups" class="stack create-group">
+    <input type="hidden" name="csrf" value="{{.Page.CSRF}}">
+    <div class="filters">
+      {{/* Both fields echo what came back from a no-JS pick. Without that the
+           round trip cleared the card it was meant to fill in. */}}
+      <label>Name<input type="text" name="name" value="{{.Name}}" placeholder="eng-sessions" required maxlength="60"></label>
+      <label>Visibility
+        <span class="seg">
+          <label class="seg-opt"><input type="radio" name="visibility" value="private"{{if .VisibilityIs "private"}} checked{{end}}><span>private</span></label>
+          <label class="seg-opt"><input type="radio" name="visibility" value="org"{{if .VisibilityIs "org"}} checked{{end}}><span>org</span></label>
+        </span>
+      </label>
+    </div>
+    {{/* Three modes, one component: the sub-input for the chosen mode is
+         disclosed by CSS :has() on the checked radio, so switching modes costs
+         no round trip. The two searches are data-fill combos rather than the
+         filter pages' navigating ones, because this is a POST form and the
+         value has to land in the field for the server to resolve. Their
+         options are still real links: with the script blocked a click comes
+         back here with the field already filled. */}}
+    <fieldset class="dest-pick" id="destination">
+      <legend>Destination</legend>
+      <label class="row-line"><input type="radio" name="dest_mode" value="dm"{{if .ModeIs "dm"}} checked{{end}}> My own DM, so whoever attaches a session gets the thread in their DM</label>
+      <label class="row-line"><input type="radio" name="dest_mode" value="channel"{{if .ModeIs "channel"}} checked{{end}}> A channel</label>
+      <div class="dest-sub dest-sub-channel">
+        <span class="combo" data-fill>
+          <input type="text" name="channel_pick" value="{{.ChannelPick}}" placeholder="type to search channels&hellip;" spellcheck="false" autocomplete="off">
+          <span class="combo-panel">
+            {{range .Channels}}<a href="{{$.ChannelPickURL .Name}}">#{{.Name}}</a>{{end}}
+          </span>
+        </span>
+        <span class="sub">start typing and pick from the list; paste a C&hellip; id for a private channel</span>
+      </div>
+      <label class="row-line"><input type="radio" name="dest_mode" value="person"{{if .ModeIs "person"}} checked{{end}}> Someone's DM</label>
+      <div class="dest-sub dest-sub-person">
+        <span class="combo" data-fill>
+          <input type="text" name="person_pick" value="{{.PersonPick}}" placeholder="type to search people&hellip;" spellcheck="false" autocomplete="off">
+          <span class="combo-panel">
+            {{range .People}}<a href="{{$.PersonPickURL .Handle}}" data-value="@{{.Handle}}">@{{.Handle}}{{if .RealName}} &mdash; {{.RealName}}{{end}}</a>{{end}}
+          </span>
+        </span>
+        <span class="sub">start typing a handle or name and pick from the list</span>
+      </div>
+    </fieldset>
+    <div><button class="btn">Create group</button></div>
+  </form>
+</section>
+{{end}}
+
+{{define "scripts"}}<script src="{{asset "combo.js"}}" defer></script>{{end}}

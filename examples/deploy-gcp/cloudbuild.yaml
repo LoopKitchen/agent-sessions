@@ -1,0 +1,48 @@
+# Cloud Build recipe for the server image.
+#
+# An explicit config rather than `builds submit --tag`, because that shorthand
+# insists on a Dockerfile at the root of the build context and this one lives
+# at examples/deploy-gcp/Dockerfile. The context still has to be the repository root:
+# the server imports internal/event and internal/health, which the client also
+# uses, so building from the deploy directory would silently exclude them.
+#
+# The release workflow (examples/deploy-gcp/release.yml.example) and a release engineer's
+# laptop both build the image from this file, so the two cannot drift: the
+# same Dockerfile, the same build args, the same tag shape. Building here
+# rather than on the laptop also removes the one mistake README.md 7 warns
+# about (an arm64 image that Cloud Run accepts and cannot start), because the
+# builder is linux/amd64.
+#
+# Substitutions:
+#   _TAG    the 7-character git sha stamped into the binary as its version
+#   _IMAGE  the full Artifact Registry path the image is pushed to
+#
+# The build date is taken at build time rather than passed in, so a caller
+# cannot stamp a binary with a date it was not built on.
+#
+# Usage from the repository root (the build context; the Dockerfile says why):
+#   gcloud builds submit --project=__PROJECT__ --region=__REGION__ \
+#     --config=examples/deploy-gcp/cloudbuild.yaml \
+#     --substitutions=_TAG=<sha>,_IMAGE=__REGION__-docker.pkg.dev/__PROJECT__/loop-sessions/server:<sha> .
+steps:
+  - name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - -ceu
+      - |
+        docker build \
+          -f examples/deploy-gcp/Dockerfile \
+          --build-arg VERSION="${_TAG}" \
+          --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          -t "${_IMAGE}" \
+          .
+images:
+  - ${_IMAGE}
+substitutions:
+  _TAG: dev
+  _IMAGE: __REGION__-docker.pkg.dev/__PROJECT__/loop-sessions/server:dev
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1200s

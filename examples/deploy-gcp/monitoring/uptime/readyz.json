@@ -1,0 +1,13 @@
+{
+  "displayName": "loop-sessions readyz",
+  "host": "__PUBLIC_HOST__",
+  "protocol": "https",
+  "port": 443,
+  "path": "/readyz",
+  "period": 1,
+  "timeout": 10,
+  "regions": ["asia-pacific", "europe", "usa-oregon"],
+  "matcherType": "contains-string",
+  "matcherContent": "ready",
+  "_comment": "The external liveness check. /readyz, not /healthz: Google's front end swallows /healthz on a run.app URL and serves its own 404, so a check on it would fail forever. The body says 'ready' only when the database answered a ping, which makes this the one probe that sees the whole path. apply.sh lists by displayName before creating, so re-running it never creates a second check."
+}

@@ -1,0 +1,49 @@
+{
+  "displayName": "loop-sessions: analytics export runs failing",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "data",
+    "asset": "20c-export-run-failing"
+  },
+  "conditions": [
+    {
+      "displayName": "a run line with status other than ok in each of two consecutive hourly periods",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/export_runs\" AND resource.type=\"cloud_run_job\" AND metric.labels.status != \"ok\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "3600s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "3600s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "7200s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The hourly analytics export job has ended with `status=failed` or `status=timeout` in two consecutive hours. This is the alert the lag alert cannot be: a run that fails before it has anything to measure (its planning read timed out, a COPY failed, the bucket refused an upload) reports the lag of the watermarks it left in force, and a first run that has no watermark yet reports zero, so a job that fails every hour from the start would keep the lag alert quiet. Two hours, not one: a single failed run is repeated by the next scheduled run with no loss (the watermark did not move), and the schedule is the retry.\n\nRead the last run lines: `gcloud logging read 'resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"loop-sessions-export\" AND jsonPayload.message=\"export run\"' --limit=6 --freshness=6h --format='value(timestamp,jsonPayload.status,jsonPayload.bootstrap,jsonPayload.lag_seconds,jsonPayload.partitions,jsonPayload.error)'`. The `error` field names the phase: `export: plan:` is a planning read (on a `bootstrap=true` run, check that the derive runner's `index:events_ingested_at_idx` step has finished; without it the first run's events-day read is a scan of the whole table), `export: partition <table>/<day>:` is a COPY or an upload, `export: start load` or `load jobs failed` is BigQuery (the `export load failed` line and alert 20b have the API's message), `export: advance watermarks:` is the watermark write. `timeout` is a run that did not finish inside its 28-minute budget; the partition lines before it show the slow table.\n\nRunbook: examples/deploy-gcp/README.md#runbook-export",
+    "links": [
+      {
+        "displayName": "Runbook: export",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-export"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

@@ -1,0 +1,364 @@
+package auth
+
+import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+)
+
+// Cookie failures. As with the other credential types the HTTP layer answers
+// all of them the same way, by clearing the cookie and sending the person back
+// to sign-in.
+var (
+	ErrNoCookie      = errors.New("auth: no session cookie")
+	ErrCookieInvalid = errors.New("auth: session cookie does not verify")
+	ErrCookieExpired = errors.New("auth: session cookie has expired")
+)
+
+// DefaultCookieName carries the __Host- prefix, which is enforced by the
+// browser rather than by us: a cookie so named is only accepted when it is
+// Secure, has Path=/ and carries no Domain attribute. That last part is the
+// point. Without it any host under the parent domain, including one somebody
+// stands up for an unrelated demo, can set a cookie the dashboard would read
+// as its own session.
+const DefaultCookieName = "__Host-loop_session"
+
+// insecureCookieName is used when Secure is switched off for local development,
+// because a browser drops a __Host- cookie that is not Secure and the resulting
+// failure looks like a bug in the sign-in code rather than a missing flag.
+const insecureCookieName = "loop_session"
+
+// Session is the state a dashboard cookie carries.
+type Session struct {
+	// ID identifies this browser session. Random rather than derived so two
+	// sessions for the same person are distinguishable in a log.
+	ID    string `json:"id"`
+	Email string `json:"e"`
+	Role  Role   `json:"r"`
+	// AuthAt is when the person actually proved who they were to Google. It
+	// survives renewal untouched, which is what makes the absolute lifetime
+	// below an actual bound rather than a suggestion.
+	AuthAt    time.Time `json:"a"`
+	IssuedAt  time.Time `json:"i"`
+	ExpiresAt time.Time `json:"x"`
+}
+
+// Viewer converts a session into the value the permission rule takes.
+func (s Session) Viewer() Viewer { return Viewer{Email: s.Email, Role: s.Role} }
+
+// CookieOptions configure Cookies.
+type CookieOptions struct {
+	// Keys sign and verify. The first signs; all of them verify, so a key can
+	// be rotated by prepending the new one and removing the old one a lifetime
+	// later, without signing everybody out mid-afternoon.
+	Keys [][]byte
+	// Name defaults to DefaultCookieName.
+	Name string
+	// Lifetime is how long one cookie is good for. Zero takes defaultLifetime.
+	Lifetime time.Duration
+	// RenewAfter is how much of Lifetime must elapse before Renew reissues.
+	// Zero takes half of Lifetime.
+	RenewAfter time.Duration
+	// AbsoluteLifetime caps renewal, measured from AuthAt. Zero takes
+	// defaultAbsoluteLifetime.
+	AbsoluteLifetime time.Duration
+	// Insecure drops the Secure attribute for plain-HTTP local development. It
+	// must never be set in a deployed environment: SameSite=Lax stops a cross-site
+	// form post, and does nothing at all about somebody reading the cookie off
+	// the wire.
+	Insecure bool
+	// Now is injectable for tests.
+	Now func() time.Time
+}
+
+const (
+	// One working day. Long enough that nobody is signed out during the day
+	// they are using the dashboard, short enough that a browser left open on a
+	// borrowed machine does not stay authenticated indefinitely.
+	defaultLifetime = 12 * time.Hour
+	// A week, measured from the Google sign-in and never reset by renewal. A
+	// laptop that walks out on Friday cannot be used to read colleagues'
+	// transcripts the following weekend without a fresh sign-in, and a person
+	// removed from the Workspace stops being able to renew within days rather
+	// than forever.
+	defaultAbsoluteLifetime = 7 * 24 * time.Hour
+
+	// cookieVersion prefixes the encoded value. The MAC covers it, so a future
+	// format change cannot be rolled back to this one by an attacker stripping
+	// the prefix, and this server can recognise a cookie it does not understand
+	// instead of reporting it as tampered.
+	cookieVersion = "v1"
+)
+
+// Cookies mints and checks dashboard session cookies.
+//
+// The cookie is signed and not encrypted. Its contents are an email address, a
+// role and two timestamps, all of which the person it belongs to already knows;
+// what matters is that they cannot change them, which a MAC gives us. Encrypting
+// as well would hide nothing from the only party holding the cookie and would
+// add a second key to rotate.
+type Cookies struct {
+	keys     [][]byte
+	name     string
+	life     time.Duration
+	renew    time.Duration
+	absolute time.Duration
+	secure   bool
+	now      func() time.Time
+}
+
+// NewCookies builds a Cookies.
+func NewCookies(o CookieOptions) (*Cookies, error) {
+	if len(o.Keys) == 0 {
+		return nil, errors.New("auth: at least one signing key is required")
+	}
+	for _, k := range o.Keys {
+		// Shorter than the MAC output is a key that adds nothing over its own
+		// length, and this one is generated by us rather than typed by anybody.
+		if len(k) < 32 {
+			return nil, errors.New("auth: signing keys must be at least 32 bytes")
+		}
+	}
+	c := &Cookies{
+		name:     o.Name,
+		life:     o.Lifetime,
+		renew:    o.RenewAfter,
+		absolute: o.AbsoluteLifetime,
+		secure:   !o.Insecure,
+		now:      o.Now,
+	}
+	c.keys = make([][]byte, len(o.Keys))
+	for i, k := range o.Keys {
+		c.keys[i] = append([]byte(nil), k...)
+	}
+	if c.life <= 0 {
+		c.life = defaultLifetime
+	}
+	if c.renew <= 0 {
+		c.renew = c.life / 2
+	}
+	if c.absolute <= 0 {
+		c.absolute = defaultAbsoluteLifetime
+	}
+	if c.now == nil {
+		c.now = time.Now
+	}
+	if c.name == "" {
+		c.name = DefaultCookieName
+		if !c.secure {
+			c.name = insecureCookieName
+		}
+	}
+	if !c.secure && strings.HasPrefix(c.name, "__Host-") {
+		return nil, errors.New("auth: a __Host- cookie name requires Secure; browsers drop it otherwise")
+	}
+	return c, nil
+}
+
+// Name is the cookie name in use, which the sign-out handler needs.
+func (c *Cookies) Name() string { return c.name }
+
+// NewKey returns a signing key of the right size, for a deployment that has to
+// generate one.
+func NewKey() ([]byte, error) {
+	k := make([]byte, 32)
+	if _, err := rand.Read(k); err != nil {
+		return nil, fmt.Errorf("auth: no entropy available: %w", err)
+	}
+	return k, nil
+}
+
+// Issue starts a browser session for a person who has just proved their
+// identity to Google, and sets the cookie.
+func (c *Cookies) Issue(w http.ResponseWriter, email string, role Role, authAt time.Time) (Session, error) {
+	email = Normalize(email)
+	if email == "" {
+		return Session{}, errors.New("auth: email is required to start a session")
+	}
+	if !role.Valid() {
+		return Session{}, errors.New("auth: a valid role is required to start a session")
+	}
+	id, err := NewUUID()
+	if err != nil {
+		return Session{}, err
+	}
+	now := c.now()
+	if authAt.IsZero() {
+		authAt = now
+	}
+	s := Session{
+		ID:        id,
+		Email:     email,
+		Role:      role,
+		AuthAt:    authAt,
+		IssuedAt:  now,
+		ExpiresAt: now.Add(c.life),
+	}
+	// Never issue a cookie that outlives the absolute cap, so the last cookie
+	// before the cap expires with it rather than a full lifetime later.
+	if deadline := authAt.Add(c.absolute); s.ExpiresAt.After(deadline) {
+		s.ExpiresAt = deadline
+	}
+	if !s.ExpiresAt.After(now) {
+		return Session{}, ErrCookieExpired
+	}
+	c.set(w, s)
+	return s, nil
+}
+
+// Verify reads and checks the session cookie on a request.
+func (c *Cookies) Verify(r *http.Request) (Session, error) {
+	ck, err := r.Cookie(c.name)
+	if err != nil {
+		return Session{}, ErrNoCookie
+	}
+	s, err := c.decode(ck.Value)
+	if err != nil {
+		return Session{}, err
+	}
+	now := c.now()
+	if !now.Before(s.ExpiresAt) {
+		return Session{}, ErrCookieExpired
+	}
+	// The absolute cap is checked on every read, not only on renewal, so a
+	// cookie that somehow outlived it cannot be presented until its own expiry
+	// catches up.
+	if !s.AuthAt.IsZero() && !now.Before(s.AuthAt.Add(c.absolute)) {
+		return Session{}, ErrCookieExpired
+	}
+	if Normalize(s.Email) == "" || !s.Role.Valid() {
+		return Session{}, ErrCookieInvalid
+	}
+	return s, nil
+}
+
+// Renew extends a session that is past its renewal point and reports whether it
+// did. An active tab therefore rolls forward silently, while a session nobody
+// touched simply expires.
+//
+// Renewal reissues rather than editing the cookie in place because the value is
+// signed as a whole; there is no such thing as changing one field of it.
+func (c *Cookies) Renew(w http.ResponseWriter, s Session) (Session, bool) {
+	now := c.now()
+	if now.Sub(s.IssuedAt) < c.renew {
+		return s, false
+	}
+	deadline := s.AuthAt.Add(c.absolute)
+	// Past the absolute cap the answer is a fresh Google sign-in, so leave the
+	// existing cookie to expire on its own rather than extending it.
+	if !s.AuthAt.IsZero() && !now.Before(deadline) {
+		return s, false
+	}
+	next := s
+	next.IssuedAt = now
+	next.ExpiresAt = now.Add(c.life)
+	if !s.AuthAt.IsZero() && next.ExpiresAt.After(deadline) {
+		next.ExpiresAt = deadline
+	}
+	if !next.ExpiresAt.After(s.ExpiresAt) {
+		// Nothing to gain; do not spend a Set-Cookie on it.
+		return s, false
+	}
+	c.set(w, next)
+	return next, true
+}
+
+// Clear signs the browser out. MaxAge is negative rather than zero, which is
+// what tells a browser to delete the cookie now instead of keeping it for the
+// session.
+func (c *Cookies) Clear(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     c.name,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   c.secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (c *Cookies) set(w http.ResponseWriter, s Session) {
+	http.SetCookie(w, &http.Cookie{
+		Name:  c.name,
+		Value: c.encode(s),
+		Path:  "/",
+		// MaxAge from the remaining lifetime, so the browser drops the cookie
+		// at the same moment the server would stop honouring it.
+		MaxAge: int(s.ExpiresAt.Sub(c.now()).Seconds()),
+		// No script has any reason to read this value, and HttpOnly means an
+		// injected script on the dashboard cannot exfiltrate a session.
+		HttpOnly: true,
+		Secure:   c.secure,
+		// Lax rather than Strict: the sign-in flow returns from Google by
+		// top-level navigation, and Strict would withhold the cookie on that
+		// first request, showing a freshly authenticated person a sign-in page.
+		// Lax still withholds it from cross-site subrequests and form posts,
+		// which is the case that matters.
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// encode produces version.payload.mac, all base64url.
+func (c *Cookies) encode(s Session) string {
+	body, err := json.Marshal(s)
+	if err != nil {
+		// Session holds only strings and times; marshalling it cannot fail, and
+		// pretending otherwise would put an unreachable error in every caller.
+		panic("auth: session is not serialisable: " + err.Error())
+	}
+	payload := base64.RawURLEncoding.EncodeToString(body)
+	return cookieVersion + "." + payload + "." + base64.RawURLEncoding.EncodeToString(c.mac(c.keys[0], payload))
+}
+
+func (c *Cookies) decode(v string) (Session, error) {
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 || parts[0] != cookieVersion {
+		return Session{}, ErrCookieInvalid
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		return Session{}, ErrCookieInvalid
+	}
+	// Every key is tried, and the comparison is constant time so that a
+	// response cannot be timed to reveal how much of a forged MAC was right.
+	var ok bool
+	for _, k := range c.keys {
+		if subtle.ConstantTimeCompare(sig, c.mac(k, parts[1])) == 1 {
+			ok = true
+		}
+	}
+	if !ok {
+		return Session{}, ErrCookieInvalid
+	}
+	body, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return Session{}, ErrCookieInvalid
+	}
+	var s Session
+	if err := json.Unmarshal(body, &s); err != nil {
+		return Session{}, ErrCookieInvalid
+	}
+	return s, nil
+}
+
+// mac binds the signature to the cookie name and the format version as well as
+// the payload, so a value cannot be lifted out of one cookie and replayed in
+// another that happens to share a signing key.
+func (c *Cookies) mac(key []byte, payload string) []byte {
+	h := hmac.New(sha256.New, key)
+	h.Write([]byte(c.name))
+	h.Write([]byte{0})
+	h.Write([]byte(cookieVersion))
+	h.Write([]byte{0})
+	h.Write([]byte(payload))
+	return h.Sum(nil)
+}

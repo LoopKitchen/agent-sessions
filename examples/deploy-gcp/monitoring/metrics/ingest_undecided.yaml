@@ -1,0 +1,20 @@
+# One per item the store answered for neither way, from the ERROR line
+# "store returned no verdict". The item stays on the laptop and is redelivered;
+# an agent on the old client gives up on it after eight such answers. Any
+# nonzero value is a server bug (handler and store disagree about a batch).
+name: loop_sessions/ingest_undecided
+description: One per admitted item the store returned no verdict for (server line "store returned no verdict")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="store returned no verdict"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: event_type
+      valueType: STRING
+labelExtractors:
+  event_type: EXTRACT(jsonPayload.event_type)

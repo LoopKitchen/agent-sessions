@@ -1,0 +1,28 @@
+# The age of the oldest unparked row of skill_rederive_queue, on the
+# derived series' lines of the "skill platform summary". A depth that
+# never drains reads as a growing age here even when the depth stays under
+# its own threshold.
+name: loop_sessions/skill_rederive_oldest_minutes
+description: Age in minutes of the oldest session waiting in the skill re-derive queue (field rederive_oldest_minutes of the server line "skill platform summary")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="skill platform summary"
+  AND jsonPayload.origin="derived"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: DISTRIBUTION
+  unit: "min"
+  labels:
+    - key: platform
+      valueType: STRING
+    - key: trigger
+      valueType: STRING
+labelExtractors:
+  platform: EXTRACT(jsonPayload.platform)
+  trigger: EXTRACT(jsonPayload.trigger)
+valueExtractor: EXTRACT(jsonPayload.rederive_oldest_minutes)
+bucketOptions:
+  explicitBuckets:
+    bounds: [0, 5, 30, 120, 720, 1440, 4320]

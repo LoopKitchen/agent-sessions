@@ -1,0 +1,20 @@
+# The derive runner writes one "derive pass" line per pass, and on a pass that
+# advanced nothing the group field pass.stalled_minutes says how long the
+# first unfinished step has gone without committing a batch. Zero on a pass
+# that did work. A runner that is alive but never progressing shows here
+# without anybody reading derive_jobs.
+name: loop_sessions/derive_stalled_minutes
+description: Minutes the first unfinished derive step has gone without committing a batch, per pass (field pass.stalled_minutes of the server line "derive pass")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="derive pass"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: DISTRIBUTION
+  unit: "min"
+valueExtractor: EXTRACT(jsonPayload.pass.stalled_minutes)
+bucketOptions:
+  explicitBuckets:
+    bounds: [0, 5, 15, 30, 60, 120, 240, 480, 1440]

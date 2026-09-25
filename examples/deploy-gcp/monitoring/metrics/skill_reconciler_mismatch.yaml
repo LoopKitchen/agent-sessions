@@ -1,0 +1,25 @@
+# One per "skill reconciler run" line whose rows_posted differs from the
+# reconciler rows the server received for the run's PLATFORM since that
+# platform's previous run, whatever token posted them (design 5.4, T12;
+# adversarial finding 4): a reconciler that says it posted more or fewer
+# rows than landed lost some to 4xx it swallowed, or someone else is
+# posting reconciler rows for the platform. A retried run is a duplicate,
+# stores nothing and never mismatches, so a token rotation cannot fire
+# this. Policy 17's fourth condition reads it.
+name: loop_sessions/skill_reconciler_mismatch
+description: Reconciler runs whose reported row count differs from the reconciler rows the server received for the platform since its previous run (server line "skill reconciler run" with mismatch=true; a retried duplicate never mismatches)
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="skill reconciler run"
+  AND jsonPayload.mismatch=true
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: platform
+      valueType: STRING
+labelExtractors:
+  platform: EXTRACT(jsonPayload.platform)

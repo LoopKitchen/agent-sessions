@@ -1,0 +1,57 @@
+{
+  "displayName": "loop-sessions: 5xx ratio > 2% for 5 min",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "ERROR",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "infra",
+    "asset": "01-ingest-5xx-ratio"
+  },
+  "conditions": [
+    {
+      "displayName": "5xx share of all requests over 5 min above 2%",
+      "conditionThreshold": {
+        "filter": "metric.type=\"run.googleapis.com/request_count\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"loop-sessions\" AND metric.labels.response_code_class=\"5xx\"",
+        "denominatorFilter": "metric.type=\"run.googleapis.com/request_count\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"loop-sessions\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "denominatorAggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.02,
+        "duration": "300s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "More than 2% of requests to loop-sessions answered 5xx for five minutes. Every 5xx on /v1/events keeps a batch on a laptop and the whole fleet retries against the same instance, so this is the alert that precedes a capture backlog.\n\nFirst: `gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND httpRequest.status>=500' --limit=20 --freshness=1h` and note the route. Then the cause: `gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"ingest request failed\"' --limit=20 --freshness=1h` grouped by `jsonPayload.op` (upsert events = the database; verify device = the database; read body = an oversized batch). If a deploy just landed, roll back first and diagnose second: `gcloud run services update-traffic loop-sessions --region=<region> --to-revisions=<previous>=100`.\n\nRunbook: examples/deploy-gcp/README.md#runbook-ingest-5xx",
+    "links": [
+      {
+        "displayName": "Runbook: ingest 5xx",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-ingest-5xx"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}
