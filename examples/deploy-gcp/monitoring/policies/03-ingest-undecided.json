@@ -1,0 +1,49 @@
+{
+  "displayName": "loop-sessions: store returned no verdict",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "ERROR",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "infra",
+    "asset": "03-ingest-undecided"
+  },
+  "conditions": [
+    {
+      "displayName": "any admitted item without a store verdict in 5 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/ingest_undecided\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The ingest handler admitted an item and the store's answer mentioned it in neither list. This is a server bug, not a client one: the two sides disagree about what a batch contains. The item stays on the laptop and is redelivered every cycle; an agent on the old client quarantines it after eight such answers, a new one parks it.\n\nRead the line: `gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"store returned no verdict\"' --limit=20 --freshness=6h` gives `event_id`, `event_type`, `email` and `device_id`. Find the item in the store's own log lines by that event id, and the device on /admin/fleet.\n\nRunbook: examples/deploy-gcp/README.md#runbook-undecided",
+    "links": [
+      {
+        "displayName": "Runbook: undecided",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-undecided"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

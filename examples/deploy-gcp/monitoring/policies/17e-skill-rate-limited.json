@@ -1,0 +1,125 @@
+{
+  "displayName": "loop-sessions: a platform's skill posts are being rate limited",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "fleet",
+    "asset": "17e-skill-rate-limited"
+  },
+  "conditions": [
+    {
+      "displayName": "claude_code skill posts rate limited above 0 for 10 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_rejected\" AND resource.type=\"cloud_run_revision\" AND metric.labels.reason=\"rate_limited\" AND metric.labels.platform=\"claude_code\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "600s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "devin skill posts rate limited above 0 for 10 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_rejected\" AND resource.type=\"cloud_run_revision\" AND metric.labels.reason=\"rate_limited\" AND metric.labels.platform=\"devin\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "600s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "capy skill posts rate limited above 0 for 10 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_rejected\" AND resource.type=\"cloud_run_revision\" AND metric.labels.reason=\"rate_limited\" AND metric.labels.platform=\"capy\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "600s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "codex skill posts rate limited above 0 for 10 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_rejected\" AND resource.type=\"cloud_run_revision\" AND metric.labels.reason=\"rate_limited\" AND metric.labels.platform=\"codex\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "600s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "vorflux skill posts rate limited above 0 for 10 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_rejected\" AND resource.type=\"cloud_run_revision\" AND metric.labels.reason=\"rate_limited\" AND metric.labels.platform=\"vorflux\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "600s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "3600s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "A platform has been over its token's per-minute cap for ten minutes. The emitters drop a 429 and do not retry, so while this fires the platform's real posts are being lost, and one flooding holder of a shared token (a hook loop, a beacon re-run, a leaked copy) is starving the others.\n\ngcloud logging read 'resource.labels.service_name=\\\"loop-sessions\\\" AND jsonPayload.message=\\\"skill invocation rejected\\\"' --freshness=30m --format='value(timestamp,jsonPayload.reason,jsonPayload.token_state,jsonPayload.source_token_id,jsonPayload.platform,jsonPayload.field)' with `reason=rate_limited`, then the token: `gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"skill token summary\"' --freshness=10m --format='value(jsonPayload.platform,jsonPayload.environment,jsonPayload.source_token_id,jsonPayload.window_count,jsonPayload.rate_limit_per_min)'`. A `window_count` far above what the platform's sessions could produce is a flood: rotate the platform (mint, push, limit 0 on the old token, revoke). A count just over a small limit is a limit set for a canary and never raised: `POST /v1/admin/source-tokens/{id}/limit`. Lock waits (Retry-After 1) also count here; those clear when the derive batch commits.\n\nRunbook: examples/deploy-gcp/README.md#runbook-source-tokens",
+    "links": [
+      {
+        "displayName": "Runbook: source tokens",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-source-tokens"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_FLEET__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

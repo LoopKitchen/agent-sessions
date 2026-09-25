@@ -1,0 +1,21 @@
+# One per accepted line on a token at rate_limit_per_min = 0, the soft
+# revoke of a rotation: the row was touched and counted, nothing was
+# written, the caller was told its post was a duplicate. A platform still
+# posting on the old token stays visible here until the revoke.
+name: loop_sessions/skill_soft_revoked
+description: Skill invocations answered as duplicates on a soft-revoked token (server line "skill invocation accepted" with soft_revoked=true)
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="skill invocation accepted"
+  AND jsonPayload.soft_revoked=true
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: platform
+      valueType: STRING
+labelExtractors:
+  platform: EXTRACT(jsonPayload.platform)

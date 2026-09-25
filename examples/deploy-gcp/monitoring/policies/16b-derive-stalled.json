@@ -1,0 +1,49 @@
+{
+  "displayName": "loop-sessions: the derive runner has not advanced for two hours",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "data",
+    "asset": "16b-derive-stalled"
+  },
+  "conditions": [
+    {
+      "displayName": "derive stalled minutes above 120 for 30 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/derive_stalled_minutes\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 120,
+        "duration": "1800s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The derive runner is alive (it writes a `derive pass` line) but its first unfinished step has not committed a batch for over two hours. A step that waits for the body window to open reports its stall honestly and clears when the window opens; a stall that outlives the window is a runner deferring to a lock nobody holds, or a step whose every batch fails before the retry cap counts it.\n\n`gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"derive pass\"' --freshness=1h --limit=5 --format='value(jsonPayload.pass.deferred,jsonPayload.pass.waiting,jsonPayload.pass.until,jsonPayload.pass.failed,jsonPayload.pass.stalled_minutes,jsonPayload.pass.steps)'`. `deferred` on every instance means an advisory lock left behind by a connection that died: `SELECT * FROM pg_locks WHERE locktype = 'advisory'` through the proxy and terminate the backend. `waiting` with a long `until` is the body window; `failed` names the step and the derive step failed alert has the rest.\n\nRunbook: examples/deploy-gcp/README.md#runbook-derive",
+    "links": [
+      {
+        "displayName": "Runbook: derive",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-derive"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

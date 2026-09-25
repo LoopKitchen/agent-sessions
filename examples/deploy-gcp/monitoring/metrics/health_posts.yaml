@@ -1,0 +1,22 @@
+# Accepted health reports, from the request log. Every enrolled laptop posts
+# one every five minutes, so at 28 devices this runs at about 336 an hour and
+# its absence for twenty minutes means the server, the TLS path or the whole
+# fleet is down. It is the fleet-wide heartbeat; the per-device view is on
+# /admin/fleet.
+name: loop_sessions/health_posts
+description: Accepted (202) POST /v1/health requests, from the Cloud Run request log; the fleet heartbeat
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/requests")
+  AND httpRequest.requestUrl=~"/v1/health$"
+  AND httpRequest.status=202
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: agent_version
+      valueType: STRING
+labelExtractors:
+  agent_version: REGEXP_EXTRACT(httpRequest.userAgent, "loop-sessions/([0-9A-Za-z._-]+)")

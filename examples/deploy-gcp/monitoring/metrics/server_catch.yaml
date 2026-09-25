@@ -1,0 +1,21 @@
+# One per credential the server's scrub pass removed that the agent's did
+# not, from the WARNING line "ingest scrubbed a credential the agent missed".
+# It is the only signal that a laptop's pattern set has fallen behind the
+# server's; the device and the kinds are in the line, not in the labels, so
+# the metric stays low-cardinality and the line stays the place to look.
+name: loop_sessions/server_catch
+description: Credentials caught by the server-side scrub that the agent missed (server line "ingest scrubbed a credential the agent missed")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="ingest scrubbed a credential the agent missed"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: event_type
+      valueType: STRING
+labelExtractors:
+  event_type: EXTRACT(jsonPayload.event_type)

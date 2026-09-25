@@ -1,0 +1,157 @@
+{{define "content"}}
+<div class="pagehead pagehead-row">
+  <div>
+    <h1>Analytics</h1>
+    <p class="sub">
+      {{if .Page.Viewer.Admin}}Usage across everyone whose sessions are captured.
+      {{else}}Your own usage; admins see the whole fleet on this page.{{end}}
+      {{day .From}} &ndash; {{day (.To.AddDate 0 0 -1)}}, by {{.BucketNoun}}.
+    </p>
+  </div>
+  <nav class="ranges" aria-label="Time range">
+    {{range .Ranges}}
+    <a class="chip{{if eq .Key $.Range}} on{{end}}" href="{{$.RangeURL .Key}}">{{.Label}}</a>
+    {{end}}
+  </nav>
+</div>
+
+<div class="cards cards-kpi">
+  <div class="card"><span class="card-n">{{num .Sessions}}</span><span class="card-l">sessions</span></div>
+  <div class="card"><span class="card-n">{{num .People}}</span><span class="card-l">people active</span></div>
+  <div class="card"><span class="card-n">{{tokens .TokensIn}}</span><span class="card-l">tokens in</span></div>
+  <div class="card"><span class="card-n">{{tokens .TokensOut}}</span><span class="card-l">tokens out</span></div>
+  <div class="card"><span class="card-n">{{cost .CostUSD}}</span><span class="card-l">cost</span></div>
+  <div class="card"><span class="card-n">{{tokens .AvgTokens}}</span><span class="card-l">avg tokens / session</span></div>
+  <div class="card"><span class="card-n">{{num .ToolCalls}}</span><span class="card-l">tool calls</span></div>
+  <div class="card{{if gt .Errors 0}} warn{{end}}"><span class="card-n">{{.FailurePct}}</span><span class="card-l">tool failure rate</span></div>
+</div>
+
+<div class="chart-grid">
+  <section class="panel">
+    <h2 class="panel-h">Sessions per {{.BucketNoun}}
+      <span class="legend"><i class="sw c0"></i> user-initiated <i class="sw c1"></i> automation</span>
+    </h2>
+    <div class="chart-scroll">{{template "chart" .SessionsChart}}</div>
+  </section>
+
+  <section class="panel" id="tokens">
+    <h2 class="panel-h">Tokens per {{.BucketNoun}}
+      <span class="legend"><i class="sw c0"></i> in <i class="sw c1"></i> out</span>
+      <details class="menu menu-mini">
+        <summary>{{.TokenTypeLabel}}</summary>
+        <div class="menu-panel">
+          {{range .TypeOptions}}<a class="pick{{if $.TokenTypeChecked .}} on{{end}}" href="{{$.TokenTypeURL .}}">{{$.TypeName .}}</a>{{end}}
+        </div>
+      </details>
+    </h2>
+    <div class="chart-scroll">{{template "chart" .TokensChart}}</div>
+  </section>
+
+  <section class="panel">
+    <h2 class="panel-h">Cost per {{.BucketNoun}}
+      <span class="legend"><i class="sw c2"></i> user-initiated <i class="sw c1"></i> automation</span>
+    </h2>
+    <div class="chart-scroll">{{template "chart" .CostChart}}</div>
+    <p class="panel-note">Priced models only; a session whose model has no rate in <code>model_prices</code> spends tokens at no recorded cost.</p>
+  </section>
+</div>
+
+{{/* One component: the person chart and the person table, deliberately in one
+     panel so the association is visible. Each of the first eight rows has a
+     toggle that shows or hides its line — CSS :has() over pre-rendered lines,
+     because the page ships script-src 'none' and a checkbox that needed a
+     round trip would need a submit button nobody asked for. */}}
+<section class="panel viewing" id="viewing">
+  <div class="panel-head">
+    <h2 class="panel-h">Viewing by person</h2>
+    <nav class="ranges" aria-label="Chart metric">
+      <a class="chip{{if eq .PersonMetric "tokens"}} on{{end}}" href="{{.MetricURL "tokens"}}">tokens</a>
+      <a class="chip{{if eq .PersonMetric "sessions"}} on{{end}}" href="{{.MetricURL "sessions"}}">sessions</a>
+      <a class="chip{{if eq .PersonMetric "cost"}} on{{end}}" href="{{.MetricURL "cost"}}">cost</a>
+    </nav>
+    <form class="inline-filter" method="get" action="/analytics#viewing">
+      <input type="hidden" name="range" value="{{.Range}}">
+      <input type="hidden" name="sort" value="{{.Sort}}">
+      <input type="hidden" name="metric" value="{{.PersonMetric}}">
+      <input type="hidden" name="top" value="{{.Top}}">
+      <span class="combo">
+        <input type="search" name="q" value="{{.Q}}" spellcheck="false" autocomplete="off"
+               placeholder="filter people &mdash; type to search" aria-label="Filter people by name or email">
+        <span class="combo-panel">
+          {{range .PeopleOptions}}<a{{if eq . $.Q}} class="on"{{end}} href="{{$.PersonURL .}}">{{.}}</a>{{end}}
+        </span>
+      </span>
+      {{if .Q}}<a class="clear" href="{{.ClearURL}}">Clear</a>{{end}}
+    </form>
+    <details class="menu menu-mini">
+      <summary>{{.PersonTypeLabel}}</summary>
+      <div class="menu-panel">
+        {{range .TypeOptions}}<a class="pick{{if $.PersonTypeChecked .}} on{{end}}" href="{{$.PersonTypeURL .}}">{{$.TypeName .}}</a>{{end}}
+      </div>
+    </details>
+    <details class="menu">
+      <summary>top {{.Top}}</summary>
+      <div class="menu-panel">
+        {{range $n := .TopChoices}}<a{{if eq $n $.Top}} class="on"{{end}} href="{{$.TopURL $n}}">top {{$n}}</a>{{end}}
+      </div>
+    </details>
+  </div>
+
+  {{if not .PersonChart.Empty}}
+  <div class="chart-scroll">{{template "chart" .PersonChart}}</div>
+  <p class="panel-note">Tick a row to add its line; the top five arrive selected. The chart holds the top eight — the table below can list more, but nine lines is not a chart anyone can read.</p>
+  {{end}}
+
+  <div class="scroll">
+  <table class="list">
+    <thead><tr>
+      <th class="c-cmp"><span title="Show on the chart">Chart</span></th>
+      <th>Person</th>
+      <th class="n"><a href="{{.SortURL "sessions"}}"{{if eq .Sort "sessions"}} class="on"{{end}}>Sessions</a></th>
+      <th class="n"><a href="{{.SortURL "tokens"}}"{{if eq .Sort "tokens"}} class="on"{{end}}>Tokens in</a></th>
+      <th class="n">Tokens out</th>
+      <th class="n">Cache read</th>
+      <th class="n"><a href="{{.SortURL "cost"}}"{{if eq .Sort "cost"}} class="on"{{end}}>Cost</a></th>
+      <th class="n">Avg tok/sess</th>
+      <th class="n">Tools</th>
+      <th class="n">Fails</th>
+      <th><a href="{{.SortURL "recent"}}"{{if eq .Sort "recent"}} class="on"{{end}}>Last active</a></th>
+    </tr></thead>
+    <tbody>
+    {{range $i, $p := .Rows}}
+      <tr class="prow{{$i}}">
+        <td class="c-cmp">
+          {{if lt $i 8}}
+          <input type="checkbox"{{if lt $i 5}} checked{{end}} aria-label="Show {{$p.Display}} on the chart">
+          <i class="sw c{{$i}}" aria-hidden="true"></i>
+          {{else}}
+          <span class="sub" title="The chart holds the top eight rows">&mdash;</span>
+          {{end}}
+        </td>
+        <td>
+          <a href="/sessions?email={{$p.Email}}"><span class="who-name">{{$p.Display}}</span></a>
+          {{if $p.DisplayName}}<span class="sub">{{$p.Email}}</span>{{end}}
+        </td>
+        <td class="n">{{num $p.Sessions}}</td>
+        <td class="n">{{tokens $p.TokensIn}}</td>
+        <td class="n">{{tokens $p.TokensOut}}</td>
+        <td class="n">{{tokens $p.CacheRead}}</td>
+        <td class="n">{{cost $p.CostUSD}}</td>
+        <td class="n">{{tokens $p.AvgTokens}}</td>
+        <td class="n">{{num $p.ToolCalls}}</td>
+        <td class="n{{if $p.Errors}} bad{{end}}">{{num $p.Errors}}</td>
+        <td title="{{stamp $p.LastActive}}">{{ago $p.LastActive}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+
+  {{if not .Rows}}
+  <div class="empty"><p><b>Nobody matches this filter in this range.</b></p></div>
+  {{end}}
+</section>
+
+{{end}}
+
+{{define "scripts"}}<script src="{{asset "combo.js"}}" defer></script>{{end}}

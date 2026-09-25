@@ -1,0 +1,68 @@
+{
+  "displayName": "loop-sessions: the skill invocation store is failing",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "ERROR",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "infra",
+    "asset": "17c-skill-store-error"
+  },
+  "conditions": [
+    {
+      "displayName": "skill invocation store failed lines above 0 in 15 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_store_error\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "900s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "skill route 5xx at or above 5 in 5 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_5xx\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 4,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The store could not write a skill invocation. At ingest (`op=derive`) the events still committed: the skill work rolled back to its savepoint and the batch's sessions went into `skill_rederive_queue`, which the dirty tick drains at twenty per thirty seconds, so nothing is lost while this fires; what is wrong is the statement, and it will fail again on the drain until it is fixed. A lock wait (55P03, 40P01) is not this line: it logs `skill invocation deferred` at WARNING and queues the same way.\n\n`gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"skill invocation store failed\"' --freshness=30m --format='value(timestamp,jsonPayload.op,jsonPayload.platform,jsonPayload.error)'`. A constraint violation names a column: a shape the derivation let through, fix and deploy. A `skill derive panic` is a Raw envelope the parser did not expect; the line carries the panic text, the events are safe. Then check the queue is draining: `SELECT count(*) FILTER (WHERE attempts < 5), count(*), min(queued_at) FROM skill_rederive_queue` through the proxy; a row at `attempts = 5` is parked and the `derive session failed` line names it.\n\nRunbook: examples/deploy-gcp/README.md#runbook-skill-invocations",
+    "links": [
+      {
+        "displayName": "Runbook: skill invocations",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-skill-invocations"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

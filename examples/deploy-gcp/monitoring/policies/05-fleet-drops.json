@@ -1,0 +1,53 @@
+{
+  "displayName": "loop-sessions: a machine recorded dropped events in the last hour",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "ERROR",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "fleet",
+    "asset": "05-fleet-drops"
+  },
+  "conditions": [
+    {
+      "displayName": "fleet drops lines above 0 in an hour",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/fleet_drops\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "3600s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "A laptop's dropped-event counter rose since the evaluator last looked: events that were captured were thrown away, and the reason label says why. The `fleet drops` line carries the person, the device and the delta.\n\n`gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"fleet drops\"' --freshness=1h --format='value(jsonPayload.email,jsonPayload.reason,jsonPayload.delta)'`. `disk_full` is the disk floor (the capture_blocked runbook); `queue_overflow` is the outbox at its cap evicting oldest-first (the backlog runbook: the machine cannot deliver as fast as it captures); `hook_abandoned` is a hook that hit its self-timeout, which the 788dcb3 client raised; `parked` is the eighth undecided verdict (the parked runbook); `rejected:<reason>` is the server refusing an item (the quarantine runbook). A session whose machine dropped events around it carries a capture-loss banner in the reader.\n\nRunbook: examples/deploy-gcp/README.md#runbook-drops",
+    "links": [
+      {
+        "displayName": "Runbook: drops",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-drops"
+      },
+      {
+        "displayName": "/admin/fleet",
+        "url": "__PUBLIC_URL__/admin/fleet"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_FLEET__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

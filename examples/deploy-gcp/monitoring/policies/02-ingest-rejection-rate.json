@@ -1,0 +1,61 @@
+{
+  "displayName": "loop-sessions: ingest rejections in more than 10% of batches for 15 min",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "fleet",
+    "asset": "02-ingest-rejection-rate"
+  },
+  "conditions": [
+    {
+      "displayName": "batches with a rejected item over all batches above 10% for 15 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/ingest_batches\" AND resource.type=\"cloud_run_revision\" AND metric.labels.had_rejects!=\"\"",
+        "denominatorFilter": "metric.type=\"logging.googleapis.com/user/loop_sessions/ingest_batches\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "denominatorAggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.1,
+        "duration": "900s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "More than a tenth of /v1/events batches carried an item the server refused for good, for fifteen minutes. A rejection is final on the laptop: the client quarantines the item with the server's reason in the file name and records a `rejected:<reason>` drop, so a rejection rate is captured work that will never be stored.\n\nRead the reasons first: `gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"ingest item rejected\"' --freshness=1h --format='value(jsonPayload.reason,jsonPayload.event_type,jsonPayload.email,jsonPayload.device_id)' | sort | uniq -c | sort -rn`. `no_session_id` and `no_id` are a client bug on the `agent_version` the `ingest_batches` metric labels the batches with; `batch_too_big` is a cap mismatch between that client and the server; a `scrub` reason is the server refusing content the laptop should have scrubbed. Then open the device on /admin/fleet: the quarantine row for that person carries the verb (`loop-sessions doctor --replay-quarantine` posts one item and prints the verdict).\n\nRunbook: examples/deploy-gcp/README.md#runbook-quarantine",
+    "links": [
+      {
+        "displayName": "Runbook: quarantine",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-quarantine"
+      },
+      {
+        "displayName": "/admin/fleet",
+        "url": "__PUBLIC_URL__/admin/fleet"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_FLEET__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

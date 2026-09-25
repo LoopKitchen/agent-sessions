@@ -1,0 +1,53 @@
+{
+  "displayName": "loop-sessions: a quarter of the fleet is behind the published build for two days",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "ERROR",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "fleet",
+    "asset": "09b-fleet-behind-error"
+  },
+  "conditions": [
+    {
+      "displayName": "machines behind the published build at or above 7 for 24 h on machines already a day behind",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/fleet_behind\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 6,
+        "duration": "86400s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "Seven or more managed laptops (a quarter of the 25-machine baseline) are behind the published build two days after it was published. One machine behind is a laptop that was off; a quarter of the fleet is the upgrade path itself failing: the manifest is unreadable, the published bytes fail their checksum, or the new binary dies on start and the daemon rolls back.\n\nRead one machine's `upgrade` block: `gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"fleet version_lag\"' --freshness=15m --format='value(jsonPayload.email,jsonPayload.agent_version,jsonPayload.hours_behind)'` names them; /admin/fleet shows the same rows. Then `gsutil ls -L gs://__RELEASE_BUCKET__/latest/` and `curl -sS <endpoint>/dl/latest/latest.json` to check the manifest and the artefacts it names agree (README 7b). If the release is bad, republish the previous build from `builds/<sha>/` as the runbook describes; the fleet follows on its next check.\n\nRunbook: examples/deploy-gcp/README.md#runbook-upgrade\n\nCloud Monitoring caps a condition duration at 24 h 30 min, so the two-day rule is written as `behind` (which the evaluator counts only for machines more than 24 h behind the published build) sustained for a further 24 h.",
+    "links": [
+      {
+        "displayName": "Runbook: upgrade",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-upgrade"
+      },
+      {
+        "displayName": "/admin/fleet",
+        "url": "__PUBLIC_URL__/admin/fleet"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_FLEET__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

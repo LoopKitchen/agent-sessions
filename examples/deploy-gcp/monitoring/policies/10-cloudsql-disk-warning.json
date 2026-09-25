@@ -1,0 +1,48 @@
+{
+  "displayName": "loop-sessions: Cloud SQL disk above 80%",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "infra",
+    "asset": "10-cloudsql-disk-warning"
+  },
+  "conditions": [
+    {
+      "displayName": "disk utilization above 0.80 for 30 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"cloudsql.googleapis.com/database/disk/utilization\" AND resource.type=\"cloudsql_database\" AND resource.labels.database_id=\"__PROJECT__:loop-sessions\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.8,
+        "duration": "1800s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The Cloud SQL instance's disk is over 80% used. Autoresize is on with no cap, so this is not an outage warning; it is the moment to look at the growth rate and the retention decision before the bill does it for you.\n\n`gcloud sql instances describe loop-sessions --format='value(settings.dataDiskSizeGb,settings.storageAutoResize,settings.storageAutoResizeLimit)'` for the current size and the cap. The retention windows live in examples/deploy-gcp/cloudrun.yaml (RETENTION_BODY_DAYS, RETENTION_SESSION_DAYS) and are the owner's decision; the health_reports rollup and the derived-data cleanup are the levers that do not delete transcripts.\n\nRunbook: examples/deploy-gcp/README.md#runbook-cloudsql",
+    "links": [
+      {
+        "displayName": "Runbook: cloudsql",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-cloudsql"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

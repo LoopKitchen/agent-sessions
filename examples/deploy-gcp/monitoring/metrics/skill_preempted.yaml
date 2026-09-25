@@ -1,0 +1,21 @@
+# One per "skill invocation preempted" line: a derived copy, built from
+# the events an enrolled laptop delivered, displaced an API row that a
+# token or a device had put on the same key first. The row is now the
+# derived copy's; the line names the displaced credential. A run of these
+# is the one trace of a pre-insert campaign (policy 17).
+name: loop_sessions/skill_preempted
+description: Derived skill rows that displaced an API copy on their key (server line "skill invocation preempted")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="skill invocation preempted"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: platform
+      valueType: STRING
+labelExtractors:
+  platform: EXTRACT(jsonPayload.platform)

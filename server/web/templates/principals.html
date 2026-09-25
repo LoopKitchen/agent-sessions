@@ -1,0 +1,72 @@
+{{define "content"}}
+<div class="pagehead">
+  <h1>People</h1>
+  <p class="sub">
+    Admins read every session and can edit this page. Members read only their own, plus anything shared with them.
+    <b>{{.Admins}}</b> active admin{{if ne .Admins 1}}s{{end}}.
+  </p>
+</div>
+
+<form class="filters" method="get" action="/admin/principals">
+  <label>Person
+    <span class="combo">
+      <input type="search" name="q" value="{{.Q}}" spellcheck="false" autocomplete="off" placeholder="name or email &mdash; type to search">
+      <span class="combo-panel">
+        {{range .Options}}<a{{if eq . $.Q}} class="on"{{end}} href="/admin/principals?q={{.}}">{{.}}</a>{{end}}
+      </span>
+    </span>
+  </label>
+  {{if .Q}}<a class="clear" href="/admin/principals">Clear</a>{{end}}
+</form>
+
+<div class="scroll">
+<table class="list list-admin">
+  <thead>
+    <tr>
+      <th>Person</th>
+      <th class="n">Sessions</th>
+      <th class="n">Devices</th>
+      <th>Last seen</th>
+      <th>Added</th>
+      <th class="c-act">Access</th>
+    </tr>
+  </thead>
+  <tbody>
+  {{range .Principals}}
+    <tr{{if .Disabled}} class="off"{{end}}>
+      <td>
+        <span class="who-name">{{if .DisplayName}}{{.DisplayName}}{{else}}{{.Email}}{{end}}</span>
+        {{if .DisplayName}}<span class="sub">{{.Email}}</span>{{end}}
+      </td>
+      <td class="n">{{num .Sessions}}</td>
+      <td class="n">{{num .Devices}}</td>
+      <td title="{{stamp .LastSeen}}">{{ago .LastSeen}}</td>
+      <td><span class="sub">{{if .AddedBy}}by {{.AddedBy}} {{end}}{{ago .AddedAt}}</span></td>
+      <td class="c-act">
+        <form method="post" action="/admin/principals/{{.Email}}">
+          <input type="hidden" name="csrf" value="{{$.Page.CSRF}}">
+          {{/* Radio pills, not a native select: the select's option popup is
+               browser-drawn and off-theme. The deliberate Save stays — this
+               row is a POST that changes someone's access, and a mutation
+               deserves one intentional click in a way a filter does not. */}}
+          <span class="seg" role="radiogroup" aria-label="Role for {{.Email}}">
+            <label class="seg-opt"><input type="radio" name="role" value="member"{{if ne .Role "admin"}} checked{{end}}{{if eq .Email $.Self}} disabled{{end}}><span>member</span></label>
+            <label class="seg-opt"><input type="radio" name="role" value="admin"{{if eq .Role "admin"}} checked{{end}}{{if eq .Email $.Self}} disabled{{end}}><span>admin</span></label>
+          </span>
+          <label class="check"><input type="checkbox" name="disabled"{{if .Disabled}} checked{{end}}{{if eq .Email $.Self}} disabled{{end}}> disabled</label>
+          <button type="submit"{{if eq .Email $.Self}} disabled title="Change your own access from another admin's account"{{end}}>Save</button>
+        </form>
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+
+<p class="provenance">
+  A disabled person keeps their captured sessions but cannot sign in, and their devices stop being accepted at ingest.
+  Removing the last admin is refused.
+</p>
+{{end}}
+
+{{define "scripts"}}<script src="{{asset "combo.js"}}" defer></script>{{end}}

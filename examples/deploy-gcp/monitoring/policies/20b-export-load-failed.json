@@ -1,0 +1,49 @@
+{
+  "displayName": "loop-sessions: analytics export load job failed",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "data",
+    "asset": "20b-export-load-failed"
+  },
+  "conditions": [
+    {
+      "displayName": "any export load failed line in 1 h",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/export_load_failed\" AND resource.type=\"cloud_run_job\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "3600s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "7200s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "A BigQuery load job started by the hourly analytics export ended in error. The run did not advance its watermark, so nothing is lost and the next run repeats the partition; but a load that fails for a reason that does not go away (a projection column the table lacks, a permission removed from the export service account, a partition decorator on a table somebody re-created without partitioning) fails every hour and the lag alert follows.\n\nRead the line: `gcloud logging read 'resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"loop-sessions-export\" AND jsonPayload.message=\"export load failed\"' --limit=10 --freshness=3h --format='value(timestamp,jsonPayload.table,jsonPayload.day,jsonPayload.job,jsonPayload.error)'`. The error is BigQuery's own (reason, message, location). `bq show -j --location=<region> <job id>` has the rest. A schema error means server/store/export_reads.go gained a column that examples/deploy-gcp/analytics/bigquery/tables.sql does not have: add it with ALTER TABLE ... ADD COLUMN IF NOT EXISTS and re-run provision.sh.\n\nRunbook: examples/deploy-gcp/README.md#runbook-export",
+    "links": [
+      {
+        "displayName": "Runbook: export",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-export"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

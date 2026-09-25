@@ -1,0 +1,30 @@
+# One per "skill invocation rejected" line: every 4xx the skill route
+# answers, by reason. token_state and platform come from the token row the
+# verify read, never from the body, so a prober cannot grow the label set;
+# a revoked or expired token still in use shows here with its state, which
+# is how a leaked token is seen after a revoke (policy 17).
+name: loop_sessions/skill_rejected
+description: Skill invocations refused with a 4xx (server line "skill invocation rejected")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="skill invocation rejected"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: reason
+      valueType: STRING
+    - key: token_shape
+      valueType: STRING
+    - key: token_state
+      valueType: STRING
+    - key: platform
+      valueType: STRING
+labelExtractors:
+  reason: EXTRACT(jsonPayload.reason)
+  token_shape: EXTRACT(jsonPayload.token_shape)
+  token_state: EXTRACT(jsonPayload.token_state)
+  platform: EXTRACT(jsonPayload.platform)

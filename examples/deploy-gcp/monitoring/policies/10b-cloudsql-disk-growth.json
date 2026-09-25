@@ -1,0 +1,40 @@
+{
+  "displayName": "loop-sessions: Cloud SQL grew more than 5 GB in a day",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "infra",
+    "asset": "10b-cloudsql-disk-growth"
+  },
+  "conditions": [
+    {
+      "displayName": "disk bytes_used delta over 24 h above 5 GB (PromQL)",
+      "conditionPrometheusQueryLanguage": {
+        "query": "delta(cloudsql_googleapis_com:database_disk_bytes_used{monitored_resource=\"cloudsql_database\",database_id=\"__PROJECT__:loop-sessions\"}[1d]) > 5e9",
+        "duration": "0s",
+        "evaluationInterval": "300s",
+        "ruleGroup": "loop-sessions",
+        "alertRule": "CloudSQLDiskGrowth"
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The database grew by more than 5 GB in a day against a measured baseline of about 0.7 GB. The condition is a PromQL rule because bytes_used is a GAUGE and the threshold aligners cannot take a delta of a gauge. The usual causes are a re-walk that duplicated a corpus (a session holding both hook and transcript copies of every event) or one runaway client.\n\nFind the device: the `ingest batch` line carries `email`, `device_id`, `items` and `bytes` per request, so `gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"ingest batch\"' --freshness=1d --format='value(jsonPayload.device_id,jsonPayload.bytes)'` summed per device names it. On the database, `SELECT email, count(*), pg_size_pretty(sum(octet_length(body))) FROM events WHERE ingested_at > now() - interval '1 day' GROUP BY 1 ORDER BY 3 DESC` through the proxy (README, section 5).\n\nRunbook: examples/deploy-gcp/README.md#runbook-cloudsql",
+    "links": [
+      {
+        "displayName": "Runbook: cloudsql",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-cloudsql"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

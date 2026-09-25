@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect the agent — loop sessions</title>
+<link rel="icon" href="data:,">
+<style>
+ body{font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      display:grid;place-items:center;min-height:100vh;margin:0;
+      background:#fafafa;color:#1a1a1a}
+ @media (prefers-color-scheme:dark){body{background:#141414;color:#eaeaea}}
+ .card{max-width:28rem;padding:2.5rem;text-align:center}
+ .brand{font-size:1.375rem;margin:0 0 .25rem;font-weight:600;letter-spacing:-.01em}
+ .brand span{opacity:.4}
+ .lead{margin:0 0 1rem;opacity:.75}
+ .warn{margin:0 0 1.75rem;font-size:.9375rem;opacity:.6}
+ button{font:inherit;font-weight:500;padding:.7rem 1.4rem;border-radius:.5rem;
+        border:1px solid rgba(128,128,128,.35);background:#fff;color:inherit;cursor:pointer}
+ @media (prefers-color-scheme:dark){button{background:#1f1f1f}}
+ button[disabled]{opacity:.5;cursor:default}
+ .status{margin:1.25rem 0 0;min-height:1.6em;font-size:.9375rem;opacity:.75}
+</style>
+</head>
+<body data-api-key="{{.APIKey}}" data-auth-domain="{{.AuthDomain}}" data-project-id="{{.ProjectID}}"
+      data-callback-url="{{.CallbackURL}}" data-callback-state="{{.State}}">
+<main class="card">
+  <h1 class="brand">loop<span>/</span>sessions</h1>
+  <p class="lead">Sign in to connect the agent on this computer.</p>
+
+  <!-- The one thing this page can tell somebody that they could not work out
+       for themselves. A link to this URL is all it takes to get a person to
+       complete a sign-in on behalf of a program they did not start, and the
+       port in the query is not something anybody could recognise as theirs or
+       not. What they can recognise is whether they just ran the installer. -->
+  <p class="warn">A program on this computer asked for this. If you did not just
+    run the loop-sessions installer, close this tab.</p>
+
+  <!-- No form anywhere on this page. The token leaves by fetch to the address
+       the server rendered, so there is no navigation that could carry it and
+       the response's form-action can be 'none'. -->
+  <button id="cli-button" type="button" disabled>Sign in with Google</button>
+
+  <!-- The script clears this. It says something rather than nothing so that a
+       browser which never ran the script — extension, blocked CDN, corporate
+       proxy — explains the disabled button instead of leaving it inexplicable.
+       noscript alone would not: a module that fails to load is not noscript. -->
+  <p id="cli-status" class="status" role="status">Loading Google sign-in…</p>
+  <noscript><p class="status">Signing in needs JavaScript. This is one of only two pages in loop-sessions that does.</p></noscript>
+</main>
+<script type="module" src="{{.ScriptPath}}"></script>
+</body>
+</html>

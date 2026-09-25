@@ -1,0 +1,103 @@
+{
+  "displayName": "loop-sessions: Cloud SQL cpu, memory, txid or deadlocks",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "infra",
+    "asset": "11b-cloudsql-resources"
+  },
+  "conditions": [
+    {
+      "displayName": "cpu utilization above 0.8 for 15 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"cloudsql.googleapis.com/database/cpu/utilization\" AND resource.type=\"cloudsql_database\" AND resource.labels.database_id=\"__PROJECT__:loop-sessions\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_MEAN"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.8,
+        "duration": "900s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "memory utilization above 0.9 for 15 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"cloudsql.googleapis.com/database/memory/utilization\" AND resource.type=\"cloudsql_database\" AND resource.labels.database_id=\"__PROJECT__:loop-sessions\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_MEAN"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.9,
+        "duration": "900s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "transaction id utilization above 0.5 for 1 h",
+      "conditionThreshold": {
+        "filter": "metric.type=\"cloudsql.googleapis.com/database/postgresql/transaction_id_utilization\" AND resource.type=\"cloudsql_database\" AND resource.labels.database_id=\"__PROJECT__:loop-sessions\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.5,
+        "duration": "3600s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "any deadlock in 5 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"cloudsql.googleapis.com/database/postgresql/deadlock_count\" AND resource.type=\"cloudsql_database\" AND resource.labels.database_id=\"__PROJECT__:loop-sessions\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "One of the instance's own limits is being approached: CPU over 80% for 15 minutes, memory over 90% for 15 minutes, transaction id space over half used for an hour (autovacuum is not keeping up; it has never run on `events`, see the migration runbook), or a deadlock.\n\nQuery Insights is not enabled on this instance, so enable it before chasing the CPU: `gcloud sql instances patch loop-sessions --insights-config-query-insights-enabled`. For txid: through the proxy, `SELECT relname, n_dead_tup, last_autovacuum FROM pg_stat_user_tables ORDER BY n_dead_tup DESC LIMIT 5`, and schedule `VACUUM (ANALYZE) events` in the derive window if autovacuum has not triggered. For deadlocks: `gcloud logging read 'resource.type=\"cloudsql_database\" AND textPayload:\"deadlock detected\"' --freshness=1h` names both statements.\n\nRunbook: examples/deploy-gcp/README.md#runbook-cloudsql",
+    "links": [
+      {
+        "displayName": "Runbook: cloudsql",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-cloudsql"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

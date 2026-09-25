@@ -1,0 +1,216 @@
+{{define "content"}}
+<div class="pagehead">
+  <h1>Sessions</h1>
+  {{if .Totals}}
+  <p class="totals">
+    <b>{{num .Totals.Sessions}}</b> sessions
+    <span class="dot">&middot;</span> <b>{{dur .Totals.Duration}}</b> of work
+    <span class="dot">&middot;</span> <b>{{cost .Totals.CostUSD}}</b> priced
+    {{if .Totals.Errors}}<span class="dot">&middot;</span> <b class="bad">{{num .Totals.Errors}}</b> tool failures{{end}}
+  </p>
+  {{end}}
+  {{with .Spend}}
+  <p class="totals">
+    <b>{{num .Sessions}}</b> on this page
+    <span class="dot">&middot;</span> <b>{{tokens .In}}</b> in / <b>{{tokens .Out}}</b> out
+    <span class="dot">&middot;</span> <b>{{tokens .CacheRead}}</b> cache read / <b>{{tokens .CacheWrite}}</b> written
+    {{if gt .Priced 0}}<span class="dot">&middot;</span> <b>{{cost .USD}}</b> across {{num .Priced}} priced{{end}}
+    {{if gt .Unpriced 0}}<span class="dot">&middot;</span> <b>{{num .Unpriced}}</b> unpriced{{end}}
+  </p>
+  {{end}}
+</div>
+
+{{/* The filter bar. No visible Apply button: an option click IS its own
+     apply, because every option is a link that re-renders the page with that
+     value set — the only instant-apply there is under script-src 'none'.
+
+     Text boxes submit on Enter, and the visually-hidden submit button below is
+     what makes that true rather than asserted: WHATWG implicit submission does
+     NOTHING in a form with no submit button and more than one text-like field,
+     and this form has five. The first version shipped exactly that — a bar
+     whose placeholders promised "Enter applies" while Enter was a no-op.
+
+     The option panels are the page's own components, not the browser's popup:
+     a themed, scrollable list that opens on focus or hover of its box, and
+     that combo.js prunes to what has been typed. Dates are typed (YYYY-MM-DD)
+     or picked from the presets, because input type=date is a browser-drawn
+     calendar and that is the same native popup the combos exist to replace. */}}
+<form class="filters" method="get" action="/sessions">
+  <label class="wide">Contains<input type="search" name="q" value="{{.Filter.Q}}" spellcheck="false" placeholder="words in a prompt or anywhere in a transcript &mdash; Enter applies"></label>
+  {{/* The harness's own messages leave the search corpus unless asked for;
+       the toggle is a link so it applies without a script, and it rides in
+       the form as a hidden field so Enter keeps it. */}}
+  <a class="pick{{if .Filter.Harness}} on{{end}}" href="{{.Filter.WithHarness "/sessions"}}" title="Search the harness's own messages too: caveats, notifications, reminders, compaction summaries">include harness messages</a>
+  {{if .Filter.Harness}}<input type="hidden" name="harness" value="1">{{end}}
+  {{if .ShowOwner}}
+  <label>Person
+    <span class="combo">
+      <input type="text" name="email" value="{{.Filter.Email}}" spellcheck="false" autocomplete="off" placeholder="anyone &mdash; type to search">
+      <span class="combo-panel">
+        <a{{if not .Filter.Email}} class="on"{{end}} href="{{.Filter.With "/sessions" "email" ""}}">anyone</a>
+        {{range .People}}<a{{if eq . $.Filter.Email}} class="on"{{end}} href="{{$.Filter.With "/sessions" "email" .}}">{{.}}</a>{{end}}
+      </span>
+    </span>
+  </label>
+  {{end}}
+  <label>Repo
+    <span class="combo">
+      <input type="text" name="repo" value="{{.Filter.Repo}}" spellcheck="false" autocomplete="off" placeholder="any repo &mdash; type to search">
+      <span class="combo-panel">
+        <a{{if not .Filter.Repo}} class="on"{{end}} href="{{.Filter.With "/sessions" "repo" ""}}">any repo</a>
+        {{range .Repos}}<a{{if eq . $.Filter.Repo}} class="on"{{end}} href="{{$.Filter.With "/sessions" "repo" .}}">{{.}}</a>{{end}}
+      </span>
+    </span>
+  </label>
+  <label>Tool
+    <details class="menu">
+      <summary>{{if .Filter.Source}}{{.Filter.Source}}{{else}}any{{end}}</summary>
+      <div class="menu-panel">
+        <a{{if not .Filter.Source}} class="on"{{end}} href="{{.Filter.With "/sessions" "source" ""}}">any</a>
+        {{range .Sources}}<a{{if eq . $.Filter.Source}} class="on"{{end}} href="{{$.Filter.With "/sessions" "source" .}}">{{.}}</a>{{end}}
+      </div>
+    </details>
+  </label>
+  <label>Type
+    <details class="menu">
+      <summary>{{.Filter.TypeLabel}}</summary>
+      <div class="menu-panel">
+        {{range .Filter.TypeOptions}}<a class="pick{{if $.Filter.TypeChecked .}} on{{end}}" href="{{$.Filter.WithTypes "/sessions" .}}">{{sessionType .}}</a>{{end}}
+      </div>
+    </details>
+  </label>
+  <label>When
+    <details class="menu">
+      <summary>{{.DateLabel}}</summary>
+      <div class="menu-panel">
+        {{range .DatePresets}}<a href="{{$.Filter.WithDates "/sessions" .From .To}}">{{.Label}}</a>{{end}}
+        <div class="menu-dates">
+          <input type="text" name="from" value="{{.Filter.From}}" placeholder="from YYYY-MM-DD" inputmode="numeric" aria-label="From date">
+          <input type="text" name="to" value="{{.Filter.To}}" placeholder="to YYYY-MM-DD" inputmode="numeric" aria-label="To date">
+        </div>
+      </div>
+    </details>
+  </label>
+  {{if .Filter.Active}}<a class="clear" href="/sessions">Clear</a>{{end}}
+  <button class="sr-submit" tabindex="-1" aria-hidden="true">Go</button>
+</form>
+
+{{if .MatchesWithheld}}
+<p class="flash flash-warn">Transcript matching is off while a repo filter is applied: search runs over messages, and a message carries no repository. The session filters still apply; clear the repo to search inside transcripts.</p>
+{{end}}
+
+{{if .Capped}}
+<p class="flash flash-warn">This query matched more than the ranking window holds. The strongest matches are shown; narrow it with a person or a date range to see the rest.</p>
+{{end}}
+
+{{if .ShowOwner}}{{with .Spend}}{{if gt .Unpriced 0}}
+<p class="flash flash-warn"><b>{{num .Unpriced}}</b> of these sessions spent tokens at a price nobody has recorded, so their cost is unknown rather than nothing. Open one to see which models are missing a rate in <code>model_prices</code>.</p>
+{{end}}{{end}}{{end}}
+
+{{if .Rows}}
+<div class="scroll">
+<table class="list">
+  <thead>
+    <tr>
+      <th class="c-when">Started</th>
+      {{if .ShowOwner}}<th class="c-who">Who</th>{{end}}
+      <th class="c-what">Session</th>
+      <th class="n c-turns">Turns</th>
+      <th class="n c-tools">Tools</th>
+      <th class="n c-fails">Fails</th>
+      <th class="n">Time</th>
+      <th class="n">Tokens</th>
+      <th class="n">Cost</th>
+    </tr>
+  </thead>
+  <tbody>
+  {{range .Rows}}
+    <tr{{if not .S.Ended}} class="live"{{end}}>
+      <td class="c-when">
+        <a href="{{.URL}}" title="{{stamp .S.StartedAt}}">{{ago .S.StartedAt}}</a>
+        <span class="sub">{{day .S.StartedAt}} {{clock .S.StartedAt}}</span>
+      </td>
+      {{if $.ShowOwner}}
+      <td class="c-who"><a href="/sessions?email={{.S.Email}}" title="{{.S.Email}}">{{if .S.Name}}{{.S.Name}}{{else}}{{.S.Email}}{{end}}</a></td>
+      {{end}}
+      <td class="c-what">
+        <a class="what" href="{{readerURL .URL}}">
+          {{/* The title is first_prompt as the server derived it (the first
+               human or slash-command prompt on the main thread); the repo
+               and branch are the subtitle. A badge names the title's source
+               only when a person did not type it. */}}
+          <span class="prompt">{{if .Prompt}}{{template "seg" .Prompt}}{{else}}<span class="sub">Untitled</span>{{end}}{{with .TitleBadge}} <span class="tag" title="Title derived from a {{.}}, not typed by a person">{{.}}</span>{{end}}</span>
+          <span class="line1">
+            {{if not .S.Ended}}<span class="live-dot" title="No end marker recorded"></span>{{end}}
+            <span class="repo">{{if .S.Repo}}{{.S.Repo}}{{else if .S.Cwd}}{{.S.Cwd}}{{else}}{{short .S.ID}}{{end}}</span>
+            {{if .S.Branch}}<span class="branch">{{.S.Branch}}</span>{{end}}
+            {{if .HeadTruncated}}<span class="tag tag-warn" title="Capture begins after the session did; the head was not imported">head</span>{{end}}
+            {{if eq .Facet.HeadState "capture_loss"}}<span class="tag tag-bad" title="The device reported dropping events around this session">capture loss</span>{{end}}
+            {{if .Facet.LineageSource}}<span class="tag tag-cont" title="Continues an earlier session (proven by {{.Facet.LineageSource}})">continued</span>{{end}}
+            {{if .S.Subagents}}<span class="tag tag-agent">{{.S.Subagents}} agent{{if ne .S.Subagents 1}}s{{end}}</span>{{end}}
+            {{if eq .S.Type "automation"}}<span class="tag tag-auto" title="Started by a machine (headless or SDK), not typed by a person">auto</span>{{end}}
+            {{if eq .S.Type "internal"}}<span class="tag tag-internal" title="Opened by one of the harness's own templates (title generator, status line, liveness ping)">internal</span>{{end}}
+            {{if eq .S.Type "empty"}}<span class="tag" title="Lifecycle markers only; nothing was said">empty{{with .Facet.EmptyKind}} ({{.}}){{end}}</span>{{end}}
+          </span>
+          {{if .Answer}}<span class="answer-snippet">{{template "seg" .Answer}}</span>{{end}}
+        </a>
+        {{if .Match}}
+        <a class="what" href="{{.Match.URL}}" title="Open the conversation at this match">
+          <span class="prompt"><span class="tag">{{.Match.Label}}</span> {{template "seg" .Match.Snippet}}</span>
+        </a>
+        {{end}}
+      </td>
+      <td class="n c-turns" title="Turns a person opened">{{.Turns}}</td>
+      <td class="n c-tools">{{num .S.ToolCalls}}</td>
+      <td class="n c-fails {{if .S.Errors}}bad{{end}}">{{if .S.Errors}}{{.S.Errors}}{{else}}&middot;{{end}}</td>
+      <td class="n">{{dur .S.Duration}}</td>
+      <td class="n money"{{if .Spend.Billable}} title="{{num .Spend.In}} in, {{num .Spend.Out}} out, {{num .Spend.CacheRead}} cache read, {{num .Spend.CacheWrite}} cache written"{{end}}>
+        {{if .Spend.Billable}}{{tokens .Spend.In}} in<span class="sub">{{tokens .Spend.Out}} out</span>{{else}}&middot;{{end}}
+      </td>
+      <td class="n money">
+        {{- if .Spend.Priced}}{{cost .Spend.USD}}
+        {{- else if .Spend.Unpriced}}<span class="tag tag-warn" title="No price on file for this session's model, so what it cost is unknown. The token counts are what was recorded.">unpriced</span>
+        {{- else}}&middot;{{end}}
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+
+{{if .NextURL}}<nav class="pager"><a class="btn" href="{{.NextURL}}">Older sessions</a></nav>{{end}}
+{{end}}
+
+{{if .Elsewhere}}
+<section class="found">
+  <h2 class="sub">Found inside these transcripts</h2>
+  <ol class="hits">
+    {{range .Elsewhere}}
+    <li class="hit">
+      <a class="hit-head" href="{{.URL}}">
+        <span class="hit-repo">{{if .Session.Repo}}{{.Session.Repo}}{{else}}{{short .Session.ID}}{{end}}</span>
+        <span class="hit-who">{{if .Session.Name}}{{.Session.Name}}{{else}}{{.Session.Email}}{{end}}</span>
+        <span class="hit-when" title="{{stamp .At}}">{{ago .At}}</span>
+        <span class="tag">{{.Label}}</span>
+      </a>
+      <p class="hit-text">{{template "seg" .Snippet}}</p>
+    </li>
+    {{end}}
+  </ol>
+</section>
+{{end}}
+
+{{if not (or .Rows .Elsewhere)}}
+<div class="empty">
+  <p><b>Nothing here yet.</b></p>
+  {{if .Filter.Active}}
+  <p>No session matches those filters{{if and .Filter.Q (not .MatchesWithheld)}}, and no transcript you can read contains those words{{end}}. <a href="/sessions">Clear them</a> and try again.</p>
+  {{if .Filter.Q}}<p>Transcript matching covers prompts, assistant turns and tool output. Quote a phrase to keep it together: <code>"connection refused"</code>.</p>{{end}}
+  {{else}}
+  <p>Sessions appear a few minutes after they run. If yours are missing, check the fleet page or run <code>loop-sessions status</code> on your laptop.</p>
+  {{end}}
+</div>
+{{end}}
+{{end}}
+
+{{define "scripts"}}<script src="{{asset "combo.js"}}" defer></script>{{end}}

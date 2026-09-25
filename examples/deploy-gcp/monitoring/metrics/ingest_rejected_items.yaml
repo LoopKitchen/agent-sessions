@@ -1,0 +1,25 @@
+# One per item the server refused for good, from the WARNING line "ingest
+# item rejected". A rejection is final on the laptop (the agent quarantines
+# the item), so this is the count of captured events that will never be
+# stored. Cardinality is bounded by the reason enum and the event type set.
+name: loop_sessions/ingest_rejected_items
+description: One per permanently rejected item, labelled by reason and event type (server line "ingest item rejected")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="ingest item rejected"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: reason
+      valueType: STRING
+      description: The rejection reason the agent was given
+    - key: event_type
+      valueType: STRING
+      description: The event type when the payload parsed far enough to have one
+labelExtractors:
+  reason: EXTRACT(jsonPayload.reason)
+  event_type: EXTRACT(jsonPayload.event_type)

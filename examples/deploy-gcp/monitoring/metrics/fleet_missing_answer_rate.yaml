@@ -1,0 +1,49 @@
+# The evaluator writes one "fleet missing_answer" line per day, client build
+# and entrypoint over the last two days: how many hook-captured human turns
+# that cohort produced and how many got an answer. rate is the missing share
+# (1 - answered/turns). The cohort holds the turns that could have produced
+# an answer: a turn still running, a turn the person interrupted, and a turn
+# whose only event is its prompt in a session that answered something else
+# are all out, because none of them lost an answer. That last exclusion is
+# conditional on the session having answered something, so a client that
+# captures prompts and nothing after still reports (server/store/health.go,
+# FleetMissingAnswers). The split is the point: before the 788dcb3 client the
+# rate is a known defect, after it the same figure on the new build is a
+# regression, and one fleet-wide number could not tell the two apart.
+name: loop_sessions/fleet_missing_answer_rate
+description: Share of hook-captured human turns that could have answered and did not, per day, client build and entrypoint, for cohorts of twenty turns or more (field rate of the server line "fleet missing_answer")
+#
+# The turns floor is on the metric and not on the evaluator, so the fleet page
+# and the log keep every cohort while the alert sees only the ones big enough
+# to mean something. A rate is a share of one day's cohort, and overnight in
+# the fleet's timezone a build can have two or three turns, where one unanswered reads as 33%
+# or more; a twelve-turn cohort once read 16.7% off two turns. The
+# floor is twenty because below that a single turn moves the figure by more
+# than the alert's whole threshold. A build that has stopped capturing
+# altogether crosses twenty turns within a working morning and alerts then;
+# until it does, it shows on the page and in `fleet silent` and `fleet
+# version_lag`, which do not need a denominator.
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="fleet missing_answer"
+  AND jsonPayload.turns>=20
+metricDescriptor:
+  metricKind: DELTA
+  valueType: DISTRIBUTION
+  unit: "1"
+  labels:
+    - key: agent_version
+      valueType: STRING
+      description: The client build the turns were captured by
+    - key: entrypoint
+      valueType: STRING
+      description: The harness entrypoint (cli, sdk, ...) of the sessions
+valueExtractor: EXTRACT(jsonPayload.rate)
+bucketOptions:
+  explicitBuckets:
+    bounds: [0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
+labelExtractors:
+  agent_version: EXTRACT(jsonPayload.agent_version)
+  entrypoint: EXTRACT(jsonPayload.entrypoint)

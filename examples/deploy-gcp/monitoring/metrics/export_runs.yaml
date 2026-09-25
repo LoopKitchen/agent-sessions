@@ -1,0 +1,25 @@
+# One per run of the analytics export job, from the same "export run" line
+# as export_lag_seconds (server/export, LogRun), labelled by status. The
+# lag metric is a distribution, and the alert API only aligns a
+# distribution by percentile, delta or sum (ALIGN_COUNT on it was refused:
+# "The aligner cannot be applied to metrics with kind DELTA and
+# value type DISTRIBUTION"), so the two rules that count run lines rather
+# than read the lag, "no run for 3 h" (20) and "a failed run in each of two
+# consecutive hours" (20c), read this counter with ALIGN_SUM instead.
+name: loop_sessions/export_runs
+description: Runs of the loop-sessions-export job (line "export run"), by status
+filter: >-
+  resource.type="cloud_run_job"
+  AND resource.labels.job_name="loop-sessions-export"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="export run"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: status
+      valueType: STRING
+      description: ok, failed or timeout
+labelExtractors:
+  status: EXTRACT(jsonPayload.status)

@@ -1,0 +1,23 @@
+# 5xx answers on the skill routes, counted from Cloud Run's own request
+# log rather than from a server line, for the reason ingest_5xx gives: a
+# 5xx the container never produced is still a post the emitter dropped,
+# and the emitters drop every failure. The catalog PUT joins the same
+# series when it lands. httpRequest.status is a number; the STRING label
+# carries "503" (see ingest_batches.yaml).
+name: loop_sessions/skill_5xx
+description: 5xx responses on /v1/skill-invocations and /v1/skill-catalog, from the Cloud Run request log
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/requests")
+  AND httpRequest.requestUrl=~"/v1/skill-(invocations|catalog)"
+  AND httpRequest.status>=500
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: status
+      valueType: STRING
+labelExtractors:
+  status: EXTRACT(httpRequest.status)

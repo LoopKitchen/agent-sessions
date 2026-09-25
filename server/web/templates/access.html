@@ -1,0 +1,59 @@
+{{define "content"}}
+<div class="pagehead">
+  <h1>Access log</h1>
+  <p class="sub">Every read of somebody else's session, written in the same transaction as the read itself. Reads of your own sessions are not listed, because they are not the thing being audited.</p>
+</div>
+
+{{/* Enter applies the typed fields; every option in a panel is a link that
+     applies itself. See sessions.html for why this is the shape. */}}
+<form class="filters" method="get" action="/admin/access">
+  <label>Session<input type="text" name="q" value="{{.Filter.Q}}" spellcheck="false" placeholder="session id"></label>
+  <label>Reader
+    <span class="combo">
+      <input type="text" name="email" value="{{.Filter.Email}}" spellcheck="false" autocomplete="off" placeholder="anyone &mdash; type to search">
+      <span class="combo-panel">
+        <a{{if not .Filter.Email}} class="on"{{end}} href="{{.Filter.With "/admin/access" "email" ""}}">anyone</a>
+        {{range .People}}<a{{if eq . $.Filter.Email}} class="on"{{end}} href="{{$.Filter.With "/admin/access" "email" .}}">{{.}}</a>{{end}}
+      </span>
+    </span>
+  </label>
+  <label>Owner
+    <span class="combo">
+      <input type="text" name="repo" value="{{.Filter.Repo}}" spellcheck="false" autocomplete="off" placeholder="anyone &mdash; type to search">
+      <span class="combo-panel">
+        <a{{if not .Filter.Repo}} class="on"{{end}} href="{{.Filter.With "/admin/access" "repo" ""}}">anyone</a>
+        {{range .People}}<a{{if eq . $.Filter.Repo}} class="on"{{end}} href="{{$.Filter.With "/admin/access" "repo" .}}">{{.}}</a>{{end}}
+      </span>
+    </span>
+  </label>
+  <label>From<input type="text" name="from" value="{{.Filter.From}}" placeholder="YYYY-MM-DD" inputmode="numeric"></label>
+  <label>To<input type="text" name="to" value="{{.Filter.To}}" placeholder="YYYY-MM-DD" inputmode="numeric"></label>
+  {{if .Filter.Active}}<a class="clear" href="/admin/access">Clear</a>{{end}}
+  {{/* Visually hidden, functionally load-bearing: five fields disable WHATWG
+       implicit submission, so without this button Enter applies nothing. */}}
+  <button class="sr-submit" tabindex="-1" aria-hidden="true">Go</button>
+</form>
+
+{{if .Entries}}
+<div class="scroll">
+<table class="list">
+  <thead><tr><th>When</th><th>Reader</th><th>Owner</th><th>Session</th><th>Via</th></tr></thead>
+  <tbody>
+  {{range .Entries}}
+    <tr>
+      <td title="{{stamp .At}}">{{ago .At}}<span class="sub">{{day .At}} {{clock .At}}</span></td>
+      <td>{{.Viewer}}</td>
+      <td>{{.Owner}}</td>
+      <td><a class="mono" href="/sessions/{{.SessionID}}">{{short .SessionID}}</a></td>
+      <td><span class="pill pill-{{.Via}}">{{.Via}}</span></td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{else}}
+<div class="empty"><p><b>Nothing recorded for this filter.</b></p></div>
+{{end}}
+{{end}}
+
+{{define "scripts"}}<script src="{{asset "combo.js"}}" defer></script>{{end}}

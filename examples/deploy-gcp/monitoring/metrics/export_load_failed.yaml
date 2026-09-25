@@ -1,0 +1,22 @@
+# One per BigQuery load job that ended in error, from the export job's
+# "export load failed" line (server/export, Run). A failed load leaves the
+# watermark where it was, so the lag alert catches it eventually; this
+# counts the failures as they happen, labelled by table, so the operator
+# knows which projection or partition to look at before the lag has grown.
+name: loop_sessions/export_load_failed
+description: BigQuery load jobs that failed during a loop-sessions-export run (line "export load failed"), by table
+filter: >-
+  resource.type="cloud_run_job"
+  AND resource.labels.job_name="loop-sessions-export"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="export load failed"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: table
+      valueType: STRING
+      description: The exported table whose partition failed to load
+labelExtractors:
+  table: EXTRACT(jsonPayload.table)

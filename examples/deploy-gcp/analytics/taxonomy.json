@@ -1,0 +1,15 @@
+{
+  "taxonomies": [
+    {
+      "displayName": "loop_sessions_pii",
+      "description": "loop-sessions analytics export: columns that carry transcript text (prompts, answers, tool output, derived titles). Readers need Fine-Grained Reader on pii_text.",
+      "activatedPolicyTypes": ["FINE_GRAINED_ACCESS_CONTROL"],
+      "policyTags": [
+        {
+          "displayName": "pii_text",
+          "description": "Transcript text of a colleague's session. Applied to messages.text, events.body, sessions.first_prompt and sessions.harness_title by provision.sh (tag_columns)."
+        }
+      ]
+    }
+  ]
+}

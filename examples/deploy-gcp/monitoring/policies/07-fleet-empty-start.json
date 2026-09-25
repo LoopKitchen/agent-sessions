@@ -1,0 +1,72 @@
+{
+  "displayName": "loop-sessions: lifecycle-only session spawns over the rule",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "fleet",
+    "asset": "07-fleet-empty-start"
+  },
+  "conditions": [
+    {
+      "displayName": "fleet empty-start rate above 0.6 for an hour",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/fleet_empty_rate\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.6,
+        "duration": "3600s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "machines over the per-device empty-start rule in an hour",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/fleet_empty_start\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "3600s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "Either more than 60% of the fleet's sessions in the last day ended before a first prompt, or at least one machine is over the per-device rule (twenty or more lifecycle-only spawns in a day, at least half of its sessions). These are `claude` processes started non-interactively and closed before anything is sent: a GUI host spawning one per open project, or a script running `claude -p`, `-c` or `--resume` with stdin closed. The server tags them `empty` and hides them; nothing is broken server-side, and the people generating them usually do not know.\n\nThe `fleet empty_start` line names the person, the cwd set and the launcher-probe recipe (a one-line SessionStart hook that appends the parent process, bundle id, terminal and entrypoint to `~/.loop/sessions/logs/launcher.log`): `gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"fleet empty_start\"' --freshness=1h --format='value(jsonPayload.email,jsonPayload.empties,jsonPayload.total,jsonPayload.cwds,jsonPayload.recipe)'`. Send the person the recipe; a day of that log names the launcher. Mute the row on /admin/fleet once the message is sent, with the date in the note, so the same name does not page daily.\n\nRunbook: examples/deploy-gcp/README.md#runbook-empty-sessions",
+    "links": [
+      {
+        "displayName": "Runbook: empty sessions",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-empty-sessions"
+      },
+      {
+        "displayName": "/admin/fleet",
+        "url": "__PUBLIC_URL__/admin/fleet"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_FLEET__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

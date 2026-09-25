@@ -1,0 +1,54 @@
+-- Retention: the schema support for the only code in this system that deletes.
+--
+-- Until this migration nothing ever removed anything. One heavy user for seven
+-- days is 407 MB and 71,687 events, 65% of which is the TOAST behind
+-- events.body; at fifty people that is roughly 2.9 GB a day and about a
+-- terabyte a year, on a db-custom-2-7680 with 7.5 GB of RAM. Disk auto-resize
+-- has no ceiling, so nothing breaks. It simply grows and bills forever, and the
+-- rows it grows on are colleagues' full transcripts.
+--
+-- Two columns' worth of support, and no data change: applying this file deletes
+-- nothing and expires nothing. What removes anything is server/store/retention.go,
+-- driven by the sweeper in server/app/app.go on a schedule, under a policy that
+-- is configured, validated and logged at boot.
+
+-- body_expired_at records that this event's body has been replaced by the
+-- tombstone, and when.
+--
+-- The alternative was to recognise an expired body by comparing it against the
+-- tombstone value itself, which fails twice: a JSONB comparison cannot be
+-- indexed usefully at this table's size, and the day somebody edits the
+-- tombstone string every previously expired row silently becomes a candidate
+-- again and is rewritten a second time. A timestamp says what happened and when
+-- it happened, and it is what the sweeper's index is built on.
+--
+-- Nullable and unset for every existing row, so this is a catalogue change
+-- rather than a table rewrite; a NULL costs nothing beyond the null bitmap the
+-- table already carries for agent_id and its neighbours. Every existing INSERT
+-- names its columns explicitly, so no writer needs to know this column exists.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS body_expired_at TIMESTAMPTZ;
+
+-- The index the sweep runs on, and the reason it is bounded.
+--
+-- The sweep asks one question: which events still carry a body and are older
+-- than the cutoff. Without an index that is a sequential scan of every event
+-- ever captured, every pass, forever — which is precisely the shape of work a
+-- retention sweep must not have, because the table it scans is the one that
+-- grows.
+--
+-- Partial on body_expired_at IS NULL, which is what makes it pay for itself
+-- twice. It indexes only rows that still have a body, so an expired row leaves
+-- the index and the index's size is bounded by the retention window rather than
+-- by the age of the deployment. The predicate has to be spelled exactly this way
+-- in the sweep's WHERE clause for the planner to prove the index applies; see
+-- expireBodyBatch, which does.
+--
+-- Built non-concurrently because store.Migrate runs every file inside one
+-- transaction and CREATE INDEX CONCURRENTLY cannot run in one. That is the right
+-- trade TODAY and only today: events holds 71,924 rows, so the SHARE lock this
+-- takes against the ingest path lasts milliseconds. Adding an index to this
+-- table once it holds a hundred million rows is a different operation and does
+-- not belong in a migration — it belongs in a CONCURRENTLY statement run by hand
+-- against a live database, with the ledger row inserted afterwards.
+CREATE INDEX IF NOT EXISTS events_body_retention_idx
+  ON events (occurred_at) WHERE body_expired_at IS NULL;

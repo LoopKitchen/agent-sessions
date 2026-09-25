@@ -1,0 +1,196 @@
+# Example GitHub Actions release workflow for the GCS-hosted release channel.
+# Copy it to .github/workflows/release.yml after replacing the placeholders
+# under `env:` below; it is not active where it sits.
+#
+# The release driver.
+#
+# One checkout of one sha produces both halves: the cross-compiled client and
+# the server image. That is the invariant examples/deploy-gcp/README.md 7b asks
+# people to keep by hand, and the reason it was broken twice: the fleet page
+# judges every machine against the server's build, so a server deployed
+# without its client, or a client published from a tree nobody can find, turns
+# the whole fleet red.
+#
+# On every merge to main this publishes the client to two places in the
+# release bucket: builds/<sha>/ (immutable; the rollback source) and canary/
+# (the channel the release engineer's machine follows). It also builds the
+# server image for the same sha so it exists when somebody deploys it. It does
+# NOT deploy the server, and it neither touches latest/ nor holds the
+# permission to: the fleet moves only when a person starts the promote job
+# by hand (workflow_dispatch, naming the build to promote). That manual
+# dispatch is the human gate. The job also declares the `production`
+# environment; add a required-reviewers rule to it if your GitHub plan
+# allows one, which needs no change here. Without the rule the environment
+# attributes the run and adds no approval step.
+#
+# The server image is built on the runner and pushed straight to Artifact
+# Registry, not submitted to Cloud Build. Cloud Build runs a config as the
+# project's default build account, which holds run.admin and Secret Manager
+# access, so a `gcloud builds submit` from this ungated job would have let
+# anything that lands on main deploy a revision or read a secret through it.
+# A docker push needs artifactregistry.writer on one repository and nothing
+# else, which is what the release account holds; "no deploy step" is then a
+# property of the account, not only of what this file happens to contain.
+#
+# Authentication is Workload Identity Federation: the job's OIDC token is
+# exchanged for the loop-sessions-release service account, and no key file
+# exists anywhere. examples/deploy-gcp/ci-setup.sh creates the pool, the provider and
+# the account.
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      promote:
+        description: "7-character sha of a builds/<sha>/ directory to promote from canary to latest"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT: __PROJECT__
+  PROJECT_NUMBER: "__PROJECT_NUMBER__"
+  REGION: __REGION__
+  BUCKET: gs://__RELEASE_BUCKET__
+  PUBLIC_URL: __PUBLIC_URL__
+  WIF_PROVIDER: projects/__PROJECT_NUMBER__/locations/global/workloadIdentityPools/github/providers/loop-sessions
+  RELEASE_SA: loop-sessions-release@__PROJECT__.iam.gserviceaccount.com
+  # A second account, reachable only from a job that declares the production
+  # environment: GitHub puts the environment in the OIDC token and the
+  # provider maps repository and environment into one attribute the binding
+  # names. The release account above can write everything in the bucket
+  # except latest/, so a run that is not this job cannot move the fleet's
+  # pointer even if the workflow said to (examples/deploy-gcp/ci-setup.sh).
+  PROMOTE_SA: loop-sessions-promote@__PROJECT__.iam.gserviceaccount.com
+
+jobs:
+  build-and-canary:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The tag goes through the environment rather than an expression: a
+      # `${{ }}` inside `run:` is spliced into the script before the shell sees
+      # it, and the habit is what makes the promote job's user input safe too.
+      # BUILD_DATE is read once here so the client binaries, latest.json and
+      # the server image all carry the same instant; the Makefile honours an
+      # exported value instead of reading the clock itself.
+      - name: name the build after this commit
+        run: |
+          echo "TAG=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: build the client from a clean checkout
+        run: make release VERSION="$TAG" ENDPOINT="$PUBLIC_URL" && make verify
+
+      - name: the stamp must name this commit and no local changes
+        run: |
+          go version -m dist/loop-sessions_linux_amd64 | grep -q "vcs.revision=${GITHUB_SHA}"
+          if go version -m dist/loop-sessions_linux_amd64 | grep -q 'vcs.modified=true'; then
+            echo "the build carries vcs.modified=true; refusing to publish" >&2
+            exit 1
+          fi
+
+      - name: latest.json names this commit
+        run: |
+          grep -q "\"commit\": \"${GITHUB_SHA}\"" dist/latest.json
+          cat dist/latest.json
+
+      - uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.PROJECT }}
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.RELEASE_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # `gcloud auth configure-docker` only writes a credHelpers entry into
+      # ~/.docker/config.json; the push itself execs docker-credential-gcloud,
+      # which ships in the SDK's bin directory that setup-gcloud puts on PATH.
+      # Checked by name before the push so a runner image that stops shipping
+      # the helper fails on this line, not inside `docker push` with a 401
+      # that blames the account's permissions.
+      - name: the credential helper the push needs is on PATH
+        run: command -v docker-credential-gcloud
+
+      # Built here and pushed with the release account's own credential (see
+      # the header for why not Cloud Build). The runner is linux/amd64, which
+      # is the platform Cloud Run runs; examples/deploy-gcp/README.md 7 covers the
+      # laptop case.
+      - name: build and push the server image for the same sha (not deployed)
+        run: |
+          IMAGE="$REGION-docker.pkg.dev/$PROJECT/loop-sessions/server:$TAG"
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker build -f examples/deploy-gcp/Dockerfile \
+            --build-arg VERSION="$TAG" --build-arg BUILD_DATE="$BUILD_DATE" \
+            -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: publish the immutable build directory
+        run: |
+          gcloud storage cp --cache-control=no-store dist/loop-sessions_* dist/SHA256SUMS dist/latest.json \
+            "$BUCKET/builds/$TAG/"
+
+      - name: publish the canary channel (binaries first, manifest last)
+        run: |
+          gcloud storage cp --cache-control=no-store dist/loop-sessions_* "$BUCKET/canary/"
+          gcloud storage cp --cache-control=no-store dist/SHA256SUMS dist/latest.json "$BUCKET/canary/"
+
+      - name: verify through the proxy the fleet reads
+        run: |
+          curl -fsS "$PUBLIC_URL/dl/canary/SHA256SUMS" | diff - dist/SHA256SUMS
+          curl -fsS "$PUBLIC_URL/dl/canary/latest.json" | diff - dist/latest.json
+
+  promote:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # The human gate is the dispatch itself: this job never runs on a push,
+    # only when a person with write access starts it and names the build.
+    # The production environment is declared so the run is attributed to it.
+    # Add a required-reviewers rule to it if your plan allows one; without
+    # one, `environment:` is not an approval step, and a fleet replacing its
+    # binary rests on the person who clicked.
+    environment: production
+    # The dispatch input reaches the shell as a variable, never as an
+    # expression inside `run:`: an expression is expanded into the script text
+    # before the shell parses it, which is GitHub's documented injection
+    # surface, and the environment gate is not a substitute for not having
+    # one. The value is then checked against the only shape a build directory
+    # can have before it is used in a path.
+    env:
+      PROMOTE: ${{ inputs.promote }}
+    steps:
+      - name: the input must be a 7-character sha and nothing else
+        run: printf '%s' "$PROMOTE" | grep -Eqx '[0-9a-f]{7}'
+
+      - uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.PROJECT }}
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.PROMOTE_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: the build directory must exist before latest/ is touched
+        run: gcloud storage ls "$BUCKET/builds/$PROMOTE/latest.json"
+
+      - name: promote builds/<sha> to latest (binaries first, manifest last)
+        run: |
+          SRC="$BUCKET/builds/$PROMOTE"
+          gcloud storage cp --cache-control=no-store "$SRC/loop-sessions_*" "$BUCKET/latest/"
+          gcloud storage cp --cache-control=no-store "$SRC/SHA256SUMS" "$SRC/latest.json" "$BUCKET/latest/"
+
+      - name: verify through the proxy the fleet reads
+        run: |
+          curl -fsS "$PUBLIC_URL/dl/latest/SHA256SUMS" | grep -c 'loop-sessions_' | grep -qx 4
+          curl -fsS "$PUBLIC_URL/dl/latest/latest.json" | grep -q '"commit"'

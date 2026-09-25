@@ -1,0 +1,66 @@
+{
+  "displayName": "loop-sessions: analytics export more than 3 h behind",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "data",
+    "asset": "20-export-lag"
+  },
+  "conditions": [
+    {
+      "displayName": "export lag_seconds (p50 over 1 h) above 3 h",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/export_lag_seconds\" AND resource.type=\"cloud_run_job\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "3600s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_50",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 10800,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "no export run line for 3 h (the job is not running)",
+      "conditionAbsent": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/export_runs\" AND resource.type=\"cloud_run_job\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "3600s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "duration": "10800s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The BigQuery copy of the derived tables (dataset loop_sessions, bucket __ANALYTICS_BUCKET__) is more than three hours behind Postgres, or the hourly export job has not written its run line for three hours. The reader is unaffected; analysts querying BigQuery are reading stale data.\n\nExpected while a catch-up is in progress: the first run after provisioning, and the runs after a long outage, take at most 2,000 sessions (or 40 session start days) and 6 event days each (server/export, Options) and report the lag honestly until the corpus is exported, about seven hourly runs for the whole corpus. Check whether the lag is falling: `gcloud logging read 'resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"loop-sessions-export\" AND jsonPayload.message=\"export run\"' --limit=6 --freshness=6h --format='value(timestamp,jsonPayload.status,jsonPayload.lag_seconds,jsonPayload.partitions,jsonPayload.capped,jsonPayload.error)'`. Falling with `capped=true` is a catch-up; nothing to do.\n\nNot falling: the status of the last runs says why. `failed` with `failed_loads` above zero is a BigQuery load the `export load failed` line names (table, day, job id, the API's message; a schema mismatch means tables.sql lacks a column the projection gained, fix the DDL and re-run provision.sh). `timeout` is a run that did not finish inside its budget: look at the partition lines for the slow table. No run line at all: the Cloud Scheduler job loop-sessions-export-hourly or the Cloud Run job is disabled or failing to start (`gcloud run jobs executions list --job=loop-sessions-export --region=<region> --limit=5`).\n\nRunbook: examples/deploy-gcp/README.md#runbook-export",
+    "links": [
+      {
+        "displayName": "Runbook: export",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-export"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

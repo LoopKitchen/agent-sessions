@@ -1,0 +1,52 @@
+{
+  "displayName": "loop-sessions: /readyz uptime check failing",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "CRITICAL",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "infra",
+    "asset": "13b-uptime-readyz"
+  },
+  "conditions": [
+    {
+      "displayName": "3 or more checkers failing over 5 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.labels.check_id=\"__UPTIME_CHECK_ID__\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_NEXT_OLDER",
+            "crossSeriesReducer": "REDUCE_COUNT_FALSE",
+            "groupByFields": [
+              "resource.label.*"
+            ]
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 2,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The external check on __PUBLIC_URL__/readyz is failing from three regions: the service is down from the internet, which is where every laptop is.\n\n`curl -i __PUBLIC_URL__/readyz` (expect 200 `ready`; 503 `not ready` is the database, anything else is Cloud Run or DNS). `gcloud run services describe loop-sessions --region=<region> --format='value(status.conditions)'` for the platform's view. If a deploy just landed, roll back: `gcloud run services update-traffic loop-sessions --region=<region> --to-revisions=<previous>=100`.\n\nRunbook: examples/deploy-gcp/README.md#runbook-ingest-5xx",
+    "links": [
+      {
+        "displayName": "Runbook: ingest 5xx",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-ingest-5xx"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

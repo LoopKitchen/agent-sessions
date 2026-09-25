@@ -1,0 +1,48 @@
+{
+  "displayName": "loop-sessions: Cloud SQL disk above 90%",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "ERROR",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "infra",
+    "asset": "10-cloudsql-disk-error"
+  },
+  "conditions": [
+    {
+      "displayName": "disk utilization above 0.90 for 30 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"cloudsql.googleapis.com/database/disk/utilization\" AND resource.type=\"cloudsql_database\" AND resource.labels.database_id=\"__PROJECT__:loop-sessions\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.9,
+        "duration": "1800s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "86400s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The Cloud SQL instance's disk is over 90% used and autoresize has not caught up, or has been capped. Autoresize adds space when a threshold is crossed, so sustained 90% means either the cap (`settings.storageAutoResizeLimit`) was set or growth is faster than the resize cycle: check `disk/bytes_used` over the last day and the disk-growth alert.\n\n`gcloud sql instances describe loop-sessions --format='value(settings.dataDiskSizeGb,settings.storageAutoResizeLimit)'`. Raising the cap or the size is `gcloud sql instances patch loop-sessions --storage-size=<GB>`, and a patch that changes storage does not restart the instance.\n\nRunbook: examples/deploy-gcp/README.md#runbook-cloudsql",
+    "links": [
+      {
+        "displayName": "Runbook: cloudsql",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-cloudsql"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_INFRA__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}

@@ -1,0 +1,205 @@
+{{define "content"}}
+<div class="pagehead pagehead-row">
+  <div>
+    <h1>Skills</h1>
+    <p class="sub">
+      {{if .Page.Viewer.Admin}}Skill use across every platform and person.
+      {{else}}Fleet totals; the person table is your own row, and small cells fold into <em>other</em>.{{end}}
+      {{day .From}} &ndash; {{day .To}}, by {{.BucketNoun}}; internal and automation sessions hidden unless named; claimed rows shown apart.
+    </p>
+  </div>
+  <nav class="ranges" aria-label="Time range">
+    {{range .Ranges}}
+    <a class="chip{{if eq .Key $.Range}} on{{end}}" href="{{$.RangeURL .Key}}">{{.Label}}</a>
+    {{end}}
+  </nav>
+</div>
+
+{{if .Rebuild.Rebuilding}}
+<p class="flash flash-warn" role="status">History rebuilding, {{num .Rebuild.Processed}} of {{num .Rebuild.Total}} sessions. Older skill rows arrive as the derive step reaches their sessions.</p>
+{{end}}
+
+<div class="cards cards-kpi">
+  <div class="card"><span class="card-n">{{num .Summary.Totals.Invocations}}</span><span class="card-l">invocations</span></div>
+  <div class="card"><span class="card-n">{{num .Summary.Totals.Skills}}</span><span class="card-l">skills</span></div>
+  <div class="card"><span class="card-n">{{num .Summary.Totals.People}}</span><span class="card-l">people</span></div>
+  <div class="card"><span class="card-n">{{num .Summary.Totals.Sessions}}</span><span class="card-l">sessions</span></div>
+  <div class="card"><span class="card-n">{{.UserPct}}</span><span class="card-l">typed by a person</span></div>
+  <div class="card{{if gt .Summary.Totals.Error 0}} warn{{end}}"><span class="card-n">{{.ErrorPct}}</span><span class="card-l">error rate</span></div>
+  <div class="card"><span class="card-n">{{num .Summary.Totals.Claimed}}</span><span class="card-l">claimed rows{{if .Claimed}} (included){{else}} (apart){{end}}</span></div>
+</div>
+
+<div class="chart-grid">
+  <section class="panel" id="buckets">
+    <h2 class="panel-h">Invocations per {{.BucketNoun}}
+      <span class="legend">{{range .Platforms}}<i class="sw c{{$.PlatformColor .}}"></i> {{.}} {{end}}</span>
+      <nav class="ranges" aria-label="Trigger">
+        <a class="chip{{if eq .Trigger ""}} on{{end}}" href="{{.TriggerURL ""}}">all</a>
+        <a class="chip{{if eq .Trigger "user"}} on{{end}}" href="{{.TriggerURL "user"}}">typed</a>
+        <a class="chip{{if eq .Trigger "agent"}} on{{end}}" href="{{.TriggerURL "agent"}}">model</a>
+      </nav>
+      <details class="menu menu-mini">
+        <summary>{{.TypeLabel}}</summary>
+        <div class="menu-panel">
+          {{range .TypeOptions}}<a class="pick{{if $.TypeChecked .}} on{{end}}" href="{{$.TypeURL .}}">{{$.TypeName .}}</a>{{end}}
+        </div>
+      </details>
+      <a class="chip{{if .Claimed}} on{{end}}" href="{{.ClaimedURL (not .Claimed)}}">{{if .Claimed}}claimed included{{else}}include claimed{{end}}</a>
+    </h2>
+    {{if .Chart.Empty}}<div class="empty"><p><b>No invocations in this window.</b></p></div>{{else}}<div class="chart-scroll">{{template "chart" .Chart}}</div>{{end}}
+  </section>
+</div>
+
+<section class="panel" id="top">
+  <div class="panel-head">
+    <h2 class="panel-h">Top skills <span class="count">{{len .Summary.BySkill}}</span></h2>
+    <form class="inline-filter" method="get" action="/skills#top">
+      <input type="hidden" name="range" value="{{.Range}}">
+      <input type="hidden" name="sort" value="{{.Sort}}">
+      {{if .Trigger}}<input type="hidden" name="trigger" value="{{.Trigger}}">{{end}}
+      {{if .Claimed}}<input type="hidden" name="include_claimed" value="1">{{end}}
+      <input type="search" name="q" value="{{.Q}}" spellcheck="false" autocomplete="off" placeholder="filter skills by prefix" aria-label="Filter skills by prefix">
+      {{if .Q}}<a class="clear" href="{{.ClearURL}}">Clear</a>{{end}}
+    </form>
+  </div>
+  <div class="scroll">
+  <table class="list">
+    <thead><tr>
+      <th>Skill</th>
+      <th>Catalog</th>
+      <th class="n"><a href="{{.SortURL "invocations"}}"{{if eq .Sort "invocations"}} class="on"{{end}}>Invocations</a></th>
+      <th class="n"><a href="{{.SortURL "people"}}"{{if eq .Sort "people"}} class="on"{{end}}>People</a></th>
+      <th class="n"><a href="{{.SortURL "sessions"}}"{{if eq .Sort "sessions"}} class="on"{{end}}>Sessions</a></th>
+      <th class="n"><a href="{{.SortURL "user"}}"{{if eq .Sort "user"}} class="on"{{end}}>Typed</a></th>
+      <th class="n">Model</th>
+      <th class="n">Errors</th>
+      <th>Platforms</th>
+      <th>Repos</th>
+      <th><a href="{{.SortURL "recent"}}"{{if eq .Sort "recent"}} class="on"{{end}}>Last used</a></th>
+    </tr></thead>
+    <tbody>
+    {{range .Summary.BySkill}}
+      <tr>
+        <td>
+          {{if .Folded}}<span class="sub" title="Cells with fewer than three people fold here">other</span>
+          {{else}}<details class="menu menu-mini"><summary>{{.Name}}</summary><div class="menu-panel">
+            {{range .Copies}}<span class="pick">{{.SourceRepo}}/{{if .Plugin}}{{.Plugin}}:{{end}}{{.Skill}} <span class="sub">{{num .Invocations}}</span></span>{{end}}
+          </div></details>{{end}}
+        </td>
+        <td>{{if not .Folded}}{{.SourceRepo}}{{end}}</td>
+        <td class="n">{{num .Invocations}}</td>
+        <td class="n">{{num .People}}</td>
+        <td class="n">{{num .Sessions}}</td>
+        <td class="n">{{num .User}}</td>
+        <td class="n">{{num .Agent}}</td>
+        <td class="n{{if .Err}} bad{{end}}">{{num .Err}}</td>
+        <td>{{range .Platforms}}<span class="tag">{{.}}</span> {{end}}</td>
+        <td>{{range .Repos}}<span class="tag">{{.}}</span> {{end}}</td>
+        <td>{{if .LastUsedAt}}<span title="{{stamp .LastUsedAt}}">{{ago .LastUsedAt}}</span>{{else}}&mdash;{{end}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+  {{if not .Summary.BySkill}}<div class="empty"><p><b>No catalogued skill was used in this window.</b></p></div>{{end}}
+</section>
+
+<div class="chart-grid">
+  <section class="panel">
+    <h2 class="panel-h">By platform</h2>
+    <table class="list">
+      <thead><tr><th>Platform</th><th>Origin</th><th>Trust</th><th class="n">Invocations</th><th class="n">Skills</th><th class="n">People</th></tr></thead>
+      <tbody>{{range .Summary.ByPlatform}}<tr><td>{{.Platform}}</td><td>{{.Origin}}</td><td>{{.Trust}}</td><td class="n">{{num .Invocations}}</td><td class="n">{{num .Skills}}</td><td class="n">{{num .People}}</td></tr>{{end}}</tbody>
+    </table>
+    {{if not .Summary.ByPlatform}}<p class="panel-note">No rows in this window.</p>{{end}}
+  </section>
+  <section class="panel">
+    <h2 class="panel-h">By repository</h2>
+    <table class="list">
+      <thead><tr><th>Repo</th><th>Lineage</th><th class="n">Invocations</th></tr></thead>
+      <tbody>{{range .Summary.ByRepo}}<tr><td>{{.Repo}}</td><td>{{if .Lineage}}{{.Lineage}}{{else}}<span class="sub">unresolved</span>{{end}}</td><td class="n">{{num .Invocations}}</td></tr>{{end}}</tbody>
+    </table>
+    {{if not .Summary.ByRepo}}<p class="panel-note">No repository rows in this window.</p>{{end}}
+  </section>
+</div>
+
+<section class="panel" id="people">
+  <h2 class="panel-h">By person</h2>
+  <p class="panel-note">{{if .Page.Viewer.Admin}}Everyone; a blank person is the rows no person posted (beacons, reconcilers).{{else}}Your own row; admins see everyone.{{end}}</p>
+  <table class="list">
+    <thead><tr><th>Person</th><th class="n">Invocations</th><th class="n">Skills</th><th>Top skill</th><th>Platforms</th></tr></thead>
+    <tbody>{{range .Summary.ByPerson}}<tr>
+      <td>{{if .Email}}<a href="/sessions?email={{.Email}}">{{.Email}}</a>{{else}}<span class="sub">no person</span>{{end}}</td>
+      <td class="n">{{num .Invocations}}</td><td class="n">{{num .Skills}}</td><td>{{.TopSkill}}</td>
+      <td>{{range .Platforms}}<span class="tag">{{.}}</span> {{end}}</td>
+    </tr>{{end}}</tbody>
+  </table>
+  {{if not .Summary.ByPerson}}<p class="panel-note">No rows in this window.</p>{{end}}
+</section>
+
+<div class="chart-grid">
+  <section class="panel" id="unknown">
+    <h2 class="panel-h">Unknown names <span class="count">{{if .UnknownFailed}}&mdash;{{else}}{{len .Unknown}}{{end}}</span></h2>
+    <p class="panel-note">{{if .Page.Viewer.Admin}}Rows no catalog alias resolves: escaped built-ins, typos, renames and skills from unpublished catalogs. Add the alias or the built-in.{{else}}Counts of rows no catalog alias resolves, per platform and origin; the names are for admins.{{end}}</p>
+    <table class="list">
+      <thead><tr>{{if .Page.Viewer.Admin}}<th>Name</th>{{end}}<th>Platform</th><th>Origin</th><th class="n">Rows</th><th>First</th><th>Last</th>{{if .Page.Viewer.Admin}}<th>Suggested</th>{{end}}</tr></thead>
+      <tbody>{{range .Unknown}}<tr>
+        {{if $.Page.Viewer.Admin}}<td><code>{{.RawName}}</code></td>{{end}}
+        <td>{{.Platform}}</td><td>{{.Origin}}</td><td class="n">{{num .Count}}</td>
+        <td title="{{stamp .FirstSeen}}">{{ago .FirstSeen}}</td><td title="{{stamp .LastSeen}}">{{ago .LastSeen}}</td>
+        {{if $.Page.Viewer.Admin}}<td>{{with .Suggested}}{{.SourceRepo}}/{{if .Plugin}}{{.Plugin}}:{{end}}{{.Skill}}{{else}}&mdash;{{end}}</td>{{end}}
+      </tr>{{end}}</tbody>
+    </table>
+    {{if not .Unknown}}<p class="panel-note">{{if .UnknownFailed}}unavailable{{else}}Every name in this window resolves.{{end}}</p>{{end}}
+  </section>
+  <section class="panel" id="unused">
+    <h2 class="panel-h">Never used <span class="count">{{if .UnusedFailed}}&mdash;{{else}}{{len .Unused}}{{end}}</span></h2>
+    <p class="panel-note">Present catalog entries no proven row reached in the last 90 days.</p>
+    <table class="list">
+      <thead><tr><th>Skill</th><th>Catalog</th><th>Authored by</th><th class="n">Days in catalog</th><th>Last used</th><th>Flags</th></tr></thead>
+      <tbody>{{range .Unused}}<tr>
+        <td>{{if .Plugin}}{{.Plugin}}:{{end}}{{.Skill}}</td><td>{{.SourceRepo}}</td><td>{{.AuthoredBy}}</td>
+        <td class="n">{{num .DaysInCatalog}}</td>
+        <td>{{if .LastUsedAt}}<span title="{{stamp .LastUsedAt}}">{{ago .LastUsedAt}}</span>{{else}}never{{end}}</td>
+        <td>{{if not .Mirrored}}<span class="tag">not mirrored</span>{{end}}{{if not .Installable}}<span class="tag">not installable</span>{{end}}{{if .StaleMirror}}<span class="tag tag-warn">stale mirror</span>{{end}}</td>
+      </tr>{{end}}</tbody>
+    </table>
+    {{if not .Unused}}<p class="panel-note">{{if .UnusedFailed}}unavailable{{else}}Every present entry was used in the window.{{end}}</p>{{end}}
+  </section>
+</div>
+
+{{if .Page.Viewer.Admin}}
+<div class="chart-grid">
+  <section class="panel" id="pruning">
+    <h2 class="panel-h">Pruning <span class="count">{{if .PruningFailed}}&mdash;{{else}}{{len .Pruning}}{{end}}</span></h2>
+    <p class="panel-note">Entries with no proven row in 90 days. <code>archive_pr</code> is proposed only for an agent-authored, mirrored, installable entry older than 90 days whose mirror is fresh; the server opens no PR.</p>
+    <table class="list">
+      <thead><tr><th>Skill</th><th>Catalog</th><th>Authored by</th><th class="n">Days unused</th><th class="n">Days in catalog</th><th>Proposed</th><th>Exempt</th></tr></thead>
+      <tbody>{{range .Pruning}}<tr>
+        <td>{{if .Plugin}}{{.Plugin}}:{{end}}{{.Skill}}</td><td>{{.SourceRepo}}</td><td>{{.AuthoredBy}}{{if .AuthorEvidence}} <span class="sub">({{.AuthorEvidence}})</span>{{end}}</td>
+        <td class="n">{{num .DaysUnused}}</td><td class="n">{{num .DaysInCatalog}}</td>
+        <td><code>{{.ProposedAction}}</code>{{if .StaleMirror}} <span class="tag tag-warn">stale mirror</span>{{end}}</td>
+        <td>{{if .ExemptReason}}<code>{{.ExemptReason}}</code>{{else}}&mdash;{{end}}</td>
+      </tr>{{end}}</tbody>
+    </table>
+    {{if not .Pruning}}<p class="panel-note">{{if .PruningFailed}}unavailable{{else}}No candidates.{{end}}</p>{{end}}
+  </section>
+  <section class="panel" id="compliance">
+    <h2 class="panel-h">Compliance <span class="count">{{if .ComplianceFailed}}&mdash;{{else}}{{len .Compliance}}{{end}}</span></h2>
+    <p class="panel-note">Beacon rows against the reconciler's replay of the vendor's own log, per day, platform and lineage. A day with no run reads "no run", never 0%.</p>
+    <table class="list">
+      <thead><tr><th>Day</th><th>Platform</th><th>Lineage</th><th class="n">Beacon</th><th class="n">Reconciler</th><th class="n">Exact joins</th><th class="n">Compliance</th><th>Last run</th></tr></thead>
+      <tbody>{{range .Compliance}}<tr>
+        <td>{{day .Day}}</td><td>{{.Platform}}</td><td>{{if .Lineage}}{{.Lineage}}{{else}}<span class="sub">unresolved</span>{{end}}</td>
+        <td class="n">{{num .BeaconRows}}</td>
+        <td class="n">{{if .ReconcilerRows}}{{$.Rows .ReconcilerRows}}{{else}}<span class="sub">none</span>{{end}}</td>
+        <td class="n">{{num .ExactJoins}}</td>
+        <td class="n">{{$.Pct .CompliancePct}}</td>
+        <td>{{if .LastRunAt}}<span title="{{stamp .LastRunAt}}">{{ago .LastRunAt}}</span>{{else}}no run{{end}}</td>
+      </tr>{{end}}</tbody>
+    </table>
+    {{if not .Compliance}}<p class="panel-note">{{if .ComplianceFailed}}unavailable{{else}}No beacon or reconciler rows in this window.{{end}}</p>{{end}}
+  </section>
+</div>
+{{end}}
+{{end}}

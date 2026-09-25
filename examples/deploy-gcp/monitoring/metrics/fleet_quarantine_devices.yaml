@@ -1,0 +1,24 @@
+# The fleet evaluator (server/fleet) writes one "fleet summary" line per five-
+# minute tick, from whichever instance holds the lock, so each field is a
+# gauge sampled once per tick. A counter metric counts lines, not field
+# values, which is why the evaluator's numbers go through a DISTRIBUTION with
+# a valueExtractor: ALIGN_PERCENTILE_99 over one alignment period reads the
+# single sample back as the value. quarantine_devices is the number of
+# machines holding items the server refused for good; at the 788dcb3 promotion
+# machines that hit the old attempt cap do, so this can read above zero on day one and is meant to
+# be burned down, not silenced.
+name: loop_sessions/fleet_quarantine_devices
+description: Machines with a non-empty quarantine, sampled per evaluator tick (field quarantine_devices of the server line "fleet summary")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="fleet summary"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: DISTRIBUTION
+  unit: "1"
+valueExtractor: EXTRACT(jsonPayload.quarantine_devices)
+bucketOptions:
+  explicitBuckets:
+    bounds: [0, 1, 2, 3, 5, 8, 13, 21, 34, 55]

@@ -1,0 +1,28 @@
+# 5xx answers on the two client routes, counted from Cloud Run's own request
+# log rather than from a server line, because a 5xx the container never
+# produced (an instance that was killed, a request that never reached it) is
+# still a batch the fleet has to retry. run.googleapis.com/request_count
+# cannot be filtered by path, which is why this exists beside the ratio
+# alert that uses it. httpRequest.status is a number; the LogMetric
+# reference converts an extracted value to the label's type, so the STRING
+# label carries "503" (see ingest_batches.yaml).
+name: loop_sessions/ingest_5xx
+description: 5xx responses on /v1/events and /v1/health, from the Cloud Run request log
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/requests")
+  AND httpRequest.requestUrl=~"/v1/(events|health)$"
+  AND httpRequest.status>=500
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: status
+      valueType: STRING
+    - key: agent_version
+      valueType: STRING
+labelExtractors:
+  status: EXTRACT(httpRequest.status)
+  agent_version: REGEXP_EXTRACT(httpRequest.userAgent, "loop-sessions/([0-9A-Za-z._-]+)")

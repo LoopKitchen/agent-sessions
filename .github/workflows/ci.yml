@@ -1,0 +1,34 @@
+# The pull-request gate. Everything here mirrors `make lint` and `make test`,
+# plus the two builds a merge will need: the cross-compiled client and the
+# server image. A change that passes its unit tests and cannot link on
+# linux/arm64, or cannot build the Dockerfile, is a change that breaks the
+# release job on merge, and finding that out on the PR is the whole point.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: shellcheck
+        run: sudo apt-get update -q && sudo apt-get install -y -q shellcheck
+      - name: lint
+        run: make lint
+      - name: test
+        run: make test
+      - name: cross-compile the client (must link on every platform)
+        run: make release VERSION=ci ENDPOINT=https://example.invalid ALLOW_DIRTY=1 && make verify
+      - name: build the server image (must still build; never pushed from here)
+        run: docker build -f examples/deploy-gcp/Dockerfile --build-arg VERSION=ci .

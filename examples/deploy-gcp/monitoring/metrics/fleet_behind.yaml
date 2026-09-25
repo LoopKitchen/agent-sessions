@@ -1,0 +1,23 @@
+# The fleet evaluator (server/fleet) writes one "fleet summary" line per five-
+# minute tick, from whichever instance holds the lock, so each field is a
+# gauge sampled once per tick. A counter metric counts lines, not field
+# values, which is why the evaluator's numbers go through a DISTRIBUTION with
+# a valueExtractor: ALIGN_PERCENTILE_99 over one alignment period reads the
+# single sample back as the value. behind is the number of managed machines on
+# a sha other than the release manifest's commit more than a day after it was
+# published; unmanaged builds are never counted here.
+name: loop_sessions/fleet_behind
+description: Machines behind the published build by more than a day, sampled per evaluator tick (field behind of the server line "fleet summary")
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="loop-sessions"
+  AND log_id("run.googleapis.com/stdout")
+  AND jsonPayload.message="fleet summary"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: DISTRIBUTION
+  unit: "1"
+valueExtractor: EXTRACT(jsonPayload.behind)
+bucketOptions:
+  explicitBuckets:
+    bounds: [0, 1, 2, 3, 5, 8, 13, 21, 34, 55]

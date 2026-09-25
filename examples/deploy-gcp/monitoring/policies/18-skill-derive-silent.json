@@ -1,0 +1,106 @@
+{
+  "displayName": "loop-sessions: no skill invocation derived for a working day",
+  "combiner": "OR",
+  "enabled": true,
+  "severity": "WARNING",
+  "userLabels": {
+    "app": "loop-sessions",
+    "tier": "data",
+    "asset": "18-skill-derive-silent"
+  },
+  "conditions": [
+    {
+      "displayName": "derived agent-triggered rows silent above 1440 counted minutes for 30 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_silence_minutes\" AND resource.type=\"cloud_run_revision\" AND metric.labels.origin=\"derived\" AND metric.labels.trigger=\"agent\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 1440,
+        "duration": "1800s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "derived user-triggered rows silent above 1440 counted minutes for 30 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_silence_minutes\" AND resource.type=\"cloud_run_revision\" AND metric.labels.origin=\"derived\" AND metric.labels.trigger=\"user\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 1440,
+        "duration": "1800s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "skill re-derive queue depth above 100 for 30 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_rederive_queue\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 100,
+        "duration": "1800s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    },
+    {
+      "displayName": "oldest skill re-derive queue row above 1440 minutes for 30 min",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/loop_sessions/skill_rederive_oldest_minutes\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 1440,
+        "duration": "1800s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The derived skill series went a working day without a row, or the re-derive queue is not draining. The gauge is one `skill platform summary` line per (platform, environment, origin, trigger) series every five minutes, computed from the newest row of `skill_invocations` with Saturday to Monday in the mask zone (America/New_York) not counted; each trigger is its own series, so typed commands cannot mask a broken agent path. A series that never had a row reads the sentinel 100000, except the two derived series for the first day after migration 0022 landed. The two queue conditions fire when the dirty tick's drain (twenty sessions per thirty seconds) is parked or stalled.\n\nWhich series: `gcloud logging read 'resource.labels.service_name=\"loop-sessions\" AND jsonPayload.message=\"skill platform summary\"' --freshness=10m --format='value(jsonPayload.platform,jsonPayload.origin,jsonPayload.trigger,jsonPayload.minutes_since_last_row,jsonPayload.rederive_queue,jsonPayload.rederive_oldest_minutes)'`. Silence with `skill invocations derived` lines still arriving and `rows_agent` or `rows_user` at zero on batches that carry candidates is the derivation dropping rows: read `skipped_builtin` and `unconfirmed` on those lines, and `skipped_shape`, which counts the names stored as `off-shape` beside the rows dropped for an off-shape id or an overlong key, and replay one session's Skill calls and slash prompts against its `origin = 'derived'` rows. No `skill invocations derived` lines at all with `ingest batch` lines arriving is the batch never reaching the block. A queue that grows is `SELECT attempts, last_error, count(*) FROM skill_rederive_queue GROUP BY 1, 2` through the proxy; `derive session failed` names each parked session.\n\nRunbook: examples/deploy-gcp/README.md#runbook-skill-invocations",
+    "links": [
+      {
+        "displayName": "Runbook: skill invocations",
+        "url": "https://github.com/LoopKitchen/agent-sessions/blob/main/examples/deploy-gcp/README.md#runbook-skill-invocations"
+      }
+    ]
+  },
+  "notificationChannels": [
+    "projects/__PROJECT__/notificationChannels/__SLACK_FLEET__",
+    "projects/__PROJECT__/notificationChannels/__EMAIL_OWNER__"
+  ]
+}
